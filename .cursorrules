@@ -1,0 +1,20 @@
+# Phase — Project Intelligence
+
+## Product
+Visual RSI regime EA only — no trading.
+
+## Regime
+- Lookback 60: bull = RSI in [35,80], bear = RSI in [20,65]
+- Higher score wins; tie holds previous; both < 70% → Neutral
+- History: rolling score over 500 bars → vertical strips
+
+## Drawing
+- Prefix `PH_`
+- Bg: OBJ_RECTANGLE_LABEL fullscreen dark green/red
+- Boxes: body only (open/close), bull down→up green, bear up→down red
+
+## Companion
+`Indicators/Phase_RSI.mq5` — RSI(10), levels 20/35/40/60/65/80, zone fills
+
+## Docs
+Phase_PRD.md + memory-bank/ — update on significant changes
