@@ -3,18 +3,20 @@
 ## Product
 Visual RSI regime EA only — no trading.
 
-## Regime
-- Lookback 60: bull = RSI in [35,80], bear = RSI in [20,65]
-- Higher score wins; tie holds previous; both < 70% → Neutral
-- History: rolling score over 500 bars → vertical strips
+## Regime (v1.16 CB sticky overlap)
+- BEAR band 20–65: fail/bounce at 50–65 → SELL; leave only on close >65
+- BULL band 35–80: hold/bounce at 35–50 → BUY; leave only on close <35
+- Overlap 35–65 sticky (prior regime). Cap fails ×2 from neutral → SELL
+- RSI@80 = bull ceiling, not sell
+- History: 500-bar strips from sticky state
 
 ## Drawing
 - Prefix `PH_`
-- Bg: OBJ_RECTANGLE_LABEL fullscreen dark green/red
+- Bg: OBJ_RECTANGLE_LABEL fullscreen (chart black)
 - Boxes: body only (open/close), bull down→up green, bear up→down red
 
 ## Companion
-`Indicators/Phase_RSI.mq5` — RSI(10), levels 20/35/40/60/65/80, zone fills
+`Indicators/Phase_RSI.mq5` — RSI(14), levels 20/35/40/50/60/65/80, zone fills 35–40 & 60–65
 
 ## Docs
 Phase_PRD.md + memory-bank/ — update on significant changes

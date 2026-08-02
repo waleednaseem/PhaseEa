@@ -4,7 +4,7 @@
 //| Book: Technical Analysis for the Trading Professional (Ch.1)     |
 //+------------------------------------------------------------------+
 #property copyright "Phase"
-#property version   "1.10"
+#property version   "1.16"
 
 enum ENUM_PH_REGIME
   {
@@ -14,13 +14,16 @@ enum ENUM_PH_REGIME
   };
 
 input group "=== RSI / CB Zones ==="
-input int                InpRsiPeriod      = 14;    // Brown Ch.1 uses RSI(14)
+input int                InpRsiPeriod      = 14;    // Constance Brown RSI(14)
 input ENUM_APPLIED_PRICE InpAppliedPrice   = PRICE_CLOSE;
 input int                InpHistoryBars    = 500;
-input double             InpBullFloor      = 40.0;  // bull support — break = leave bull
-input double             InpBearCap        = 65.0;  // bear resistance — break = leave bear
-input double             InpRsiTol         = 1.0;
-input int                InpConfirmBars    = 1;     // bars to hold after break for confirm
+input double             InpBullFloor      = 40.0;  // bull pullback hold (35–50 zone)
+input double             InpBullHard       = 35.0;  // leave BUY only below this
+input double             InpBearCapLo      = 60.0;  // bear rally fail zone low
+input double             InpBearCap        = 65.0;  // leave SELL only above this
+input double             InpRsiTol         = 0.5;
+input int                InpConfirmBars    = 2;     // bars to confirm breakout/breakdown
+input int                InpCapFailCount   = 2;     // 60–65 failures → confirm SELL
 
 input group "=== Display ==="
 input bool               InpShowBackground = true;
@@ -121,19 +124,19 @@ void OnChartEvent(const int id,const long &lparam,const double &dparam,const str
 //+------------------------------------------------------------------+
 void AttachPhaseRsi()
   {
+   // remove any old Phase_RSI so period/levels match EA inputs
    int wins = (int)ChartGetInteger(0,CHART_WINDOWS_TOTAL);
-   for(int w = 0; w < wins; w++)
+   for(int w = wins - 1; w >= 0; w--)
      {
       int n = ChartIndicatorsTotal(0,w);
-      for(int i = 0; i < n; i++)
+      for(int i = n - 1; i >= 0; i--)
         {
-         if(StringFind(ChartIndicatorName(0,w,i),"Phase_RSI") == 0)
-           {
-            g_rsiWindow = w;
-            return;
-           }
+         string name = ChartIndicatorName(0,w,i);
+         if(StringFind(name,"Phase_RSI") == 0)
+            ChartIndicatorDelete(0,w,name);
         }
      }
+   g_rsiWindow = -1;
 
    int h = iCustom(_Symbol,_Period,"Phase_RSI",InpRsiPeriod,InpAppliedPrice,true);
    if(h == INVALID_HANDLE)
@@ -170,6 +173,13 @@ void RefreshAll()
    if(hist < 5)
       return;
 
+   // skip invalid RSI warmup bars
+   for(int i = 0; i < ArraySize(rsi); i++)
+     {
+      if(rsi[i] == EMPTY_VALUE || rsi[i] < 0.0 || rsi[i] > 100.0)
+         rsi[i] = 50.0;
+     }
+
    ENUM_PH_REGIME regimes[];
    ArrayResize(regimes,hist + 1);
    ArrayInitialize(regimes,(int)PH_NEUTRAL);
@@ -192,86 +202,160 @@ void RefreshAll()
   }
 
 //+------------------------------------------------------------------+
-// Constance Brown Ch.1 range-shift (sticky):
-//   BULL  = RSI holds above ~40 (pullbacks 40–50; advances into 80s)
-//   BEAR  = RSI fails under ~65 (rallies 55–65; declines into 20s)
-//   Leave BULL on close below bull floor → END then confirm BEAR
-//   Leave BEAR on close above bear cap  → END then confirm BULL
-// NOT classic 30/70. NOT % band occupancy. RSI@80 is BULL ceiling, not SELL.
+// Constance Brown Ch.1 range-shift (sticky overlap):
+//
+//   BULL band ≈ 35–80 : pullbacks hold 35/40/50, advances into 80s
+//   BEAR band ≈ 20–65 : rallies fail 50/60/65, declines into 20s
+//   Overlap   ≈ 35–65 : DO NOT FLIP — previous regime continues
+//
+//   Leave BUY  → only sustained close < 35
+//   Leave SELL → only sustained close > 65
+//   Cap fails (tag 60–65 then reject) → confirm/enter SELL
+//   Floor holds after >65 breakout → confirm BUY
+//   RSI @ 80 = bull ceiling, NEVER a sell signal
 void BuildCbRegimes(const double &rsi[],const int hist,ENUM_PH_REGIME &regimes[])
   {
-   const double floor = InpBullFloor;
-   const double cap   = InpBearCap;
-   const double tol   = InpRsiTol;
-   const int    need  = MathMax(1,InpConfirmBars);
+   const double floor   = InpBullFloor;     // 40
+   const double hard    = InpBullHard;      // 35
+   const double capLo   = InpBearCapLo;     // 60
+   const double cap     = InpBearCap;       // 65
+   const double tol     = InpRsiTol;
+   const int    need    = MathMax(1,InpConfirmBars);
+   const int    needFail= MathMax(1,InpCapFailCount);
 
    ENUM_PH_REGIME state = PH_NEUTRAL;
-   bool pendingBull = false;
-   bool pendingBear = false;
-   int  holdBull = 0;
-   int  holdBear = 0;
+   int  belowHard = 0;
+   int  aboveCap  = 0;
+   int  capFails  = 0;
+   int  floorHolds= 0;
+   bool taggedCap = false;
+   bool taggedFloor = false;
+   bool hadBreakout = false;  // saw close >65 in this bull attempt
 
-   // oldest → newest closed (hist … 1)
    for(int shift = hist; shift >= 1; shift--)
      {
       double v = rsi[shift];
+      double vOlder = (shift + 1 <= hist ? rsi[shift + 1] : v);
 
-      // --- hard breaks ---
-      if(v < floor - tol)
+      // --- bear-cap failure: tag 60–65 then close back below 60 ---
+      if(v >= capLo - tol && v <= cap + tol)
+         taggedCap = true;
+      if(taggedCap && v < capLo - tol)
         {
-         if(state == PH_BULLISH)
-            state = PH_NEUTRAL;          // bull ended
-         pendingBear = true;
-         pendingBull = false;
-         holdBull = 0;
-         holdBear = 0;
+         capFails++;
+         taggedCap = false;
         }
-      else if(v > cap + tol)
+      if(v > cap + tol)
         {
-         if(state == PH_BEARISH)
-            state = PH_NEUTRAL;          // bear ended
-         pendingBull = true;
-         pendingBear = false;
-         holdBull = 0;
-         holdBear = 0;
+         taggedCap = false;
+         capFails = 0;       // true breakout cancels fail count
+         hadBreakout = true;
         }
 
-      // --- confirm BULL: breakout above cap, then hold above floor ---
-      if(pendingBull && state != PH_BULLISH)
+      // --- bull-floor hold: tag 35–50 then rise back ---
+      if(v >= hard - tol && v <= floor + 10.0 + tol)  // 35–50 zone
+         taggedFloor = true;
+      if(taggedFloor && v > floor + tol && v > vOlder)
         {
-         if(v >= floor - tol)
-           {
-            holdBull++;
-            if(holdBull >= need)
-              {
-               state = PH_BULLISH;
-               pendingBull = false;
-               pendingBear = false;
-               holdBull = 0;
-               holdBear = 0;
-              }
-           }
+         floorHolds++;
+         taggedFloor = false;
+        }
+      if(v < hard - tol)
+        {
+         taggedFloor = false;
+         floorHolds = 0;
+         hadBreakout = false;
+        }
+
+      // ========== BULL: sticky until <35 ==========
+      if(state == PH_BULLISH)
+        {
+         aboveCap = 0;
+         // overlap + up to 80 = stay BUY (incl. RSI@80)
+         if(v >= hard - tol)
+            belowHard = 0;
          else
-            holdBull = 0;
-        }
-
-      // --- confirm BEAR: breakdown below floor, then fail under cap ---
-      if(pendingBear && state != PH_BEARISH)
-        {
-         if(v <= cap + tol)
            {
-            holdBear++;
-            if(holdBear >= need)
+            belowHard++;
+            if(belowHard >= need)
               {
                state = PH_BEARISH;
-               pendingBear = false;
-               pendingBull = false;
-               holdBull = 0;
-               holdBear = 0;
+               belowHard = 0;
+               capFails = 0;
+               floorHolds = 0;
+               hadBreakout = false;
+              }
+           }
+        }
+      // ========== BEAR: sticky until >65 ==========
+      else if(state == PH_BEARISH)
+        {
+         belowHard = 0;
+         floorHolds = 0;
+         // entire 20–65 band = stay SELL (60–65 bounces included)
+         if(v > cap + tol)
+           {
+            aboveCap++;
+            if(aboveCap >= need)
+              {
+               state = PH_BULLISH;
+               aboveCap = 0;
+               capFails = 0;
+               hadBreakout = true;
               }
            }
          else
-            holdBear = 0;
+            aboveCap = 0;
+        }
+      // ========== NEUTRAL: seed from extremes / cap fails ==========
+      else
+        {
+         if(v > cap + tol)
+           {
+            aboveCap++;
+            belowHard = 0;
+            if(aboveCap >= need)
+              {
+               state = PH_BULLISH;
+               aboveCap = 0;
+               capFails = 0;
+               hadBreakout = true;
+              }
+           }
+         else if(v < hard - tol)
+           {
+            belowHard++;
+            aboveCap = 0;
+            if(belowHard >= need)
+              {
+               state = PH_BEARISH;
+               belowHard = 0;
+               floorHolds = 0;
+               hadBreakout = false;
+              }
+           }
+         else if(capFails >= needFail)
+           {
+            // repeated 60–65 failures → SELL regime
+            state = PH_BEARISH;
+            capFails = 0;
+            aboveCap = 0;
+            belowHard = 0;
+            hadBreakout = false;
+           }
+         else if(hadBreakout && floorHolds >= needFail)
+           {
+            // broke >65 then held 35–50 → BUY
+            state = PH_BULLISH;
+            floorHolds = 0;
+            aboveCap = 0;
+            belowHard = 0;
+           }
+         else
+           {
+            aboveCap = 0;
+            belowHard = 0;
+           }
         }
 
       regimes[shift] = state;
