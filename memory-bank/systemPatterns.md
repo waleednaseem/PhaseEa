@@ -3,22 +3,22 @@
 ## Layout
 ```
 Experts/Phase/
-  Phase.mq5          # orchestrator EA
-  Phase_PRD.md
-  memory-bank/
-Indicators/Phase_RSI.mq5
+  Phase.mq5
+  Include/
+    Phase_Types.mqh
+    Phase_SR.mqh            # RSI swing Support/Resist
+    Phase_BuyRegime.mqh
+    Phase_SellRegime.mqh
+    Phase_Regime.mqh
+    Phase_Draw.mqh
 ```
 
 ## Flow
-OnInit → iRSI + ChartIndicatorAdd(Phase_RSI) → OnTick new bar → CopyBuffer → ScoreRegime → UpdateBg / PaintHistory / PaintBoxes
+OnInit → LoadConfig → iRSI + Phase_RSI
+OnTick → PhBuildRegimes (S&R swings) → paint strips/boxes/signals + RSI S&R lines
 
-## Drawing
-- Full bg: `OBJ_RECTANGLE_LABEL` (CB_RSI_Regime pattern)
-- History: `OBJ_RECTANGLE` fill back, time-based segments
-- Boxes: `OBJ_RECTANGLE` open–close only, prefix `PH_`
-- Cleanup: delete all `PH_*` on deinit
-
-## Naming
-- Inputs: `Inp*`
-- Globals: `g_*`
-- Objects: `PH_`
+## Conventions
+- Config: `g_cfg` loaded once (no re-declare zones every bar)
+- Buffers: `g_rsi[]`, `g_regimes[]` reused
+- Buy/Sell logic isolated; overlap sticky in Process functions
+- Objects: prefix `PH_`

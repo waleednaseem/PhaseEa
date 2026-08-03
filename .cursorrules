@@ -3,16 +3,16 @@
 ## Product
 Visual RSI regime EA only — no trading.
 
-## Regime (v1.16 CB sticky overlap)
-- BEAR band 20–65: fail/bounce at 50–65 → SELL; leave only on close >65
-- BULL band 35–80: hold/bounce at 35–50 → BUY; leave only on close <35
-- Overlap 35–65 sticky (prior regime). Cap fails ×2 from neutral → SELL
-- RSI@80 = bull ceiling, not sell
-- History: 500-bar strips from sticky state
+## Regime (v1.22 dynamic INV)
+- SELL INV = U-turn/bounce ≥65 (resist line follows market until regime ends)
+- BUY INV = U-turn/bounce ≤35 (support line follows until regime ends)
+- Flip only on INV cross (not fixed 35/65 stick)
+- Phase_SR.mqh finds recent swing in zone; aqua=support orange=resist
 
 ## Drawing
 - Prefix `PH_`
-- Bg: OBJ_RECTANGLE_LABEL fullscreen (chart black)
+- Modules: `Include/Phase_BuyRegime.mqh`, `Phase_SellRegime.mqh`, `Phase_Regime.mqh`, `Phase_Draw.mqh`
+- Bg black; strips/boxes/signals via Phase_Draw
 - Boxes: body only (open/close), bull down→up green, bear up→down red
 
 ## Companion
