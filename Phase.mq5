@@ -2,7 +2,7 @@
 //|                                                       Phase.mq5  |
 //+------------------------------------------------------------------+
 #property copyright "Phase"
-#property version   "1.22"
+#property version   "1.27"
 
 #include "Include/Phase_Types.mqh"
 #include "Include/Phase_Regime.mqh"
@@ -17,8 +17,8 @@ input double             InpBullHard       = 35.0;  // look U-turn/bounce at/bel
 input double             InpBearCapLo      = 60.0;
 input double             InpBearCap        = 65.0;  // look U-turn/bounce at/above
 input double             InpRsiTol         = 0.5;
-input int                InpConfirmBars    = 2;
-input int                InpHoldBars       = 3;
+input int                InpConfirmBars    = 2;     // bars must STAY beyond INV after cross
+input int                InpHoldBars       = 3;     // bars to arm INV cross / breakout
 input int                InpCapFailCount   = 2;
 input int                InpSwingStrength  = 2;     // U-turn pivot size
 
@@ -37,8 +37,8 @@ input color              InpBearBoxColor   = C'160,40,45';
 input color              InpBuySignalClr   = clrLime;
 input color              InpSellSignalClr  = clrRed;
 input color              InpEndSignalClr   = clrSilver;
-input color              InpSupportClr     = clrAqua;       // BUY INV (bounce <=35)
-input color              InpResistClr      = clrOrangeRed;  // SELL INV (U-turn >=65)
+input color              InpSupportClr     = clrAqua;       // BUY INV (bounce clearly <35)
+input color              InpResistClr      = clrOrangeRed;  // SELL INV (U-turn clearly >65)
 
 SPhConfig      g_cfg;
 SPhSRList      g_srList;

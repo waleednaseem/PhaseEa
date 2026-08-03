@@ -14,15 +14,17 @@ enum ENUM_PH_REGIME
 struct SPhConfig
   {
    double bullFloor;
-   double bullHard;     // zone: look U-turn/bounce <= 35
+   double bullHard;     // zone edge: support must be clearly BELOW this
    double bearCapLo;
-   double bearCap;      // zone: look U-turn/bounce >= 65
+   double bearCap;      // zone edge: resist must be clearly ABOVE this
    double tol;
+   double invGap;       // min distance from 35/65 (never near edge)
    int    confirmBars;
    int    holdBars;
    int    capFailCount;
    int    historyBars;
    int    swingStrength;
+   int    invLookback;  // max bars to search U-turn on sell enter
   };
 
 struct SPhWalk
@@ -33,7 +35,11 @@ struct SPhWalk
    int  pendingHold;
    int  capFails;
    int  floorHolds;
-   int  breakInv;        // bars beyond INV
+   int  breakInv;        // consecutive bars beyond INV
+   int  invHold;         // bars stayed beyond INV after arm
+   int  barsInRegime;    // anti-flicker lock after enter
+   int  regimeStartShift;// shift when regime began (INV only after this)
+   bool invBreakPending; // crossed INV — must STAY (reject cancels)
    bool breakoutPending;
    bool taggedCap;
    bool taggedFloor;
@@ -100,14 +106,18 @@ void PhWalkReset(SPhWalk &w)
    w.capFails        = 0;
    w.floorHolds      = 0;
    w.breakInv        = 0;
-   w.breakoutPending = false;
-   w.taggedCap       = false;
-   w.taggedFloor     = false;
-   w.hadBreakout     = false;
-   w.invLevel        = 0.0;
-   w.invTime         = 0;
-   w.invOn           = false;
-   w.invSegIdx       = -1;
+   w.invHold         = 0;
+   w.barsInRegime     = 0;
+   w.regimeStartShift = 0;
+   w.invBreakPending  = false;
+   w.breakoutPending  = false;
+   w.taggedCap        = false;
+   w.taggedFloor      = false;
+   w.hadBreakout      = false;
+   w.invLevel         = 0.0;
+   w.invTime          = 0;
+   w.invOn            = false;
+   w.invSegIdx        = -1;
   }
 
 void PhWalkClearBreakout(SPhWalk &w)
@@ -117,13 +127,20 @@ void PhWalkClearBreakout(SPhWalk &w)
    w.breakoutPending = false;
   }
 
+void PhWalkClearInvBreak(SPhWalk &w)
+  {
+   w.breakInv        = 0;
+   w.invHold         = 0;
+   w.invBreakPending = false;
+  }
+
 void PhWalkClearInv(SPhWalk &w)
   {
    w.invLevel  = 0.0;
    w.invTime   = 0;
    w.invOn     = false;
    w.invSegIdx = -1;
-   w.breakInv  = 0;
+   PhWalkClearInvBreak(w);
   }
 
 #endif

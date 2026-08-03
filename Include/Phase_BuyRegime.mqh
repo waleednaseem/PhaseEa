@@ -1,5 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                          Phase_BuyRegime.mqh     |
+//| Leave BUY only: cross INV + STAY below 35 (bounce cancels SELL)  |
 //+------------------------------------------------------------------+
 #ifndef PHASE_BUY_REGIME_MQH
 #define PHASE_BUY_REGIME_MQH
@@ -23,20 +24,38 @@ void PhBuy_TrackFloor(SPhWalk &w,const SPhConfig &cfg,const double v,const doubl
      }
   }
 
-// true = INV support broken → leave BUY
+// true only if INV crossed AND stayed below 35 — touch/bounce cancels
 bool PhBuy_Process(SPhWalk &w,const SPhConfig &cfg,const double v)
   {
-   const int need = MathMax(1,cfg.confirmBars);
-   const double inv = (w.invOn ? w.invLevel : cfg.bullHard);
-
-   if(v >= inv - cfg.tol)
+   if(!w.invOn)
      {
-      w.breakInv = 0;
+      PhWalkClearInvBreak(w);
+      return(false);
+     }
+
+   const int hold = MathMax(1,cfg.holdBars);
+   const int need = MathMax(1,cfg.confirmBars);
+   const double inv = w.invLevel;
+   // must break INV and stay under 35 — reclaim cancels
+   const double needBelow = MathMin(inv,cfg.bullHard) - cfg.tol;
+
+   if(v >= needBelow)
+     {
+      PhWalkClearInvBreak(w);
       return(false);
      }
 
    w.breakInv++;
-   return(w.breakInv >= need);
+   if(w.breakInv >= hold)
+      w.invBreakPending = true;
+
+   if(w.invBreakPending)
+     {
+      w.invHold++;
+      if(w.invHold >= need)
+         return(true);
+     }
+   return(false);
   }
 
 bool PhBuy_TryEnter(SPhWalk &w,const SPhConfig &cfg,const double v)

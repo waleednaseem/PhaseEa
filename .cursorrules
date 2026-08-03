@@ -3,20 +3,21 @@
 ## Product
 Visual RSI regime EA only — no trading.
 
-## Regime (v1.22 dynamic INV)
-- SELL INV = U-turn/bounce ≥65 (resist line follows market until regime ends)
-- BUY INV = U-turn/bounce ≤35 (support line follows until regime ends)
-- Flip only on INV cross (not fixed 35/65 stick)
-- Phase_SR.mqh finds recent swing in zone; aqua=support orange=resist
+## Regime (v1.27 buy support lookback)
+- Resist = highest swing clearly >65 (gap 2) — never weak near-65 spike
+- Support = lowest swing clearly <35 on BUY enter (lookback) + during buy
+- Leave SELL: cross INV + stay above 65 (spike reject = stay SELL)
+- Leave BUY: break INV + stay below 35 (bounce cancels)
+- Regime colour lock after enter (hold+confirm)
+- No mid-range capFail SELL
 
 ## Drawing
 - Prefix `PH_`
-- Modules: `Include/Phase_BuyRegime.mqh`, `Phase_SellRegime.mqh`, `Phase_Regime.mqh`, `Phase_Draw.mqh`
+- Modules: Buy/Sell/Regime/SR/Draw + Types
 - Bg black; strips/boxes/signals via Phase_Draw
-- Boxes: body only (open/close), bull down→up green, bear up→down red
 
 ## Companion
-`Indicators/Phase_RSI.mq5` — RSI(14), levels 20/35/40/50/60/65/80, zone fills 35–40 & 60–65
+`Indicators/Phase_RSI.mq5` — RSI(14), levels 20/35/40/50/60/65/80
 
 ## Docs
-Phase_PRD.md + memory-bank/ — update on significant changes
+Phase_PRD.md + memory-bank/

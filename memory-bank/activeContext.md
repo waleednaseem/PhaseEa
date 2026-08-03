@@ -1,8 +1,10 @@
 ## Current focus
-v1.22: dynamic INV S&R from U-turn/bounce — not stuck on 35/65.
+v1.27: Buy enter pe support lookback (Sell jaisa) — circled V <35 pe S&R.
 
 ## Decisions
-- SELL: recent U-turn/bounce RSI ≥65 → that peak = INV resist; line follows until new regime
-- BUY: recent U-turn/bounce RSI ≤35 → that low = INV support; line follows until new regime
-- Leave SELL only on hold above INV resist | Leave BUY only on close below INV support
-- 35/65 = search zones only, not the drawn level
+- Resist INV = HIGHEST swing >65+gap (not nearest weak spike)
+- Support INV = LOWEST swing <35-gap on buy enter + CaptureDuring
+- Leave SELL only if cross INV AND stay above 65 (failed spike = stay SELL)
+- Leave BUY only if break INV AND stay below 35 (bounce cancels)
+- capFails SELL only while RSI still below 60 zone
+- invGap = 2.0 (S&R never on/near 35 or 65)

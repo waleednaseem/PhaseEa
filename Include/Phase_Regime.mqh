@@ -20,20 +20,29 @@ void PhConfigLoad(SPhConfig &cfg,
    cfg.bearCapLo     = bearCapLo;
    cfg.bearCap       = bearCap;
    cfg.tol           = tol;
+   cfg.invGap        = 2.0;   // never stick S&R on/near 35 or 65
    cfg.confirmBars   = MathMax(1,confirmBars);
    cfg.holdBars      = MathMax(1,holdBars);
    cfg.capFailCount  = MathMax(1,capFailCount);
    cfg.historyBars   = historyBars;
    cfg.swingStrength = MathMax(1,swingStr);
+   cfg.invLookback   = 80;
+  }
+
+int PhRegimeLockBars(const SPhConfig &cfg)
+  {
+   return(MathMax(1,cfg.holdBars + cfg.confirmBars));
   }
 
 void PhEnterBull(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &times[],
                  const int shift,const int hist,const SPhConfig &cfg)
   {
-   w.state       = PH_BULLISH;
-   w.hadBreakout = true;
-   w.capFails    = 0;
-   w.belowHard   = 0;
+   w.state            = PH_BULLISH;
+   w.hadBreakout      = true;
+   w.capFails         = 0;
+   w.belowHard        = 0;
+   w.barsInRegime     = 0;
+   w.regimeStartShift = shift;
    PhWalkClearBreakout(w);
    PhInv_StartBuy(w,L,rsi,times,shift,hist,cfg);
   }
@@ -41,11 +50,13 @@ void PhEnterBull(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &tim
 void PhEnterBear(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &times[],
                  const int shift,const int hist,const SPhConfig &cfg)
   {
-   w.state       = PH_BEARISH;
-   w.hadBreakout = false;
-   w.floorHolds  = 0;
-   w.capFails    = 0;
-   w.belowHard   = 0;
+   w.state            = PH_BEARISH;
+   w.hadBreakout      = false;
+   w.floorHolds       = 0;
+   w.capFails         = 0;
+   w.belowHard        = 0;
+   w.barsInRegime     = 0;
+   w.regimeStartShift = shift;
    PhWalkClearBreakout(w);
    PhInv_StartSell(w,L,rsi,times,shift,hist,cfg);
   }
@@ -56,6 +67,7 @@ void PhBuildRegimes(const double &rsi[],const datetime &times[],const int hist,
    SPhWalk w;
    PhWalkReset(w);
    PhSRListClear(srList);
+   const int lockBars = PhRegimeLockBars(cfg);
 
    for(int shift = hist; shift >= 1; shift--)
      {
@@ -68,14 +80,18 @@ void PhBuildRegimes(const double &rsi[],const datetime &times[],const int hist,
 
       if(w.state == PH_BULLISH)
         {
+         w.barsInRegime++;
+         PhInv_CaptureDuring(w,srList,rsi,times,shift,hist,cfg);
          PhInv_Follow(w,srList,t);
-         if(PhBuy_Process(w,cfg,v))
+         if(w.barsInRegime > lockBars && PhBuy_Process(w,cfg,v))
             PhEnterBear(w,srList,rsi,times,shift,hist,cfg);
         }
       else if(w.state == PH_BEARISH)
         {
+         w.barsInRegime++;
+         PhInv_CaptureDuring(w,srList,rsi,times,shift,hist,cfg);
          PhInv_Follow(w,srList,t);
-         if(PhSell_Process(w,cfg,v))
+         if(w.barsInRegime > lockBars && PhSell_Process(w,cfg,v))
             PhEnterBull(w,srList,rsi,times,shift,hist,cfg);
         }
       else
