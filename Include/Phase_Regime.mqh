@@ -82,17 +82,25 @@ void PhBuildRegimes(const double &rsi[],const datetime &times[],const int hist,
         {
          w.barsInRegime++;
          PhInv_CaptureDuring(w,srList,rsi,times,shift,hist,cfg);
-         PhInv_Follow(w,srList,t);
          if(w.barsInRegime > lockBars && PhBuy_Process(w,cfg,v))
+           {
+            PhInv_Close(w,srList,t);   // S&R stops at regime END
             PhEnterBear(w,srList,rsi,times,shift,hist,cfg);
+           }
+         else
+            PhInv_Follow(w,srList,t);
         }
       else if(w.state == PH_BEARISH)
         {
          w.barsInRegime++;
          PhInv_CaptureDuring(w,srList,rsi,times,shift,hist,cfg);
-         PhInv_Follow(w,srList,t);
          if(w.barsInRegime > lockBars && PhSell_Process(w,cfg,v))
+           {
+            PhInv_Close(w,srList,t);
             PhEnterBull(w,srList,rsi,times,shift,hist,cfg);
+           }
+         else
+            PhInv_Follow(w,srList,t);
         }
       else
         {

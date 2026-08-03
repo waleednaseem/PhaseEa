@@ -129,15 +129,25 @@ void PhInv_Set(SPhWalk &w,SPhSRList &L,const double lvl,const datetime t0,
    w.invSegIdx = PhSRListAdd(L,t0,tNow,lvl,isSupport);
   }
 
+// freeze S&R at regime end — line stops, INV dead
+void PhInv_Close(SPhWalk &w,SPhSRList &L,const datetime tEnd)
+  {
+   if(w.invOn && w.invSegIdx >= 0 && tEnd != 0)
+      PhSRListExtend(L,w.invSegIdx,tEnd);
+   PhWalkClearInv(w);
+  }
+
 void PhInv_StartSell(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &times[],
                      const int shift,const int hist,const SPhConfig &cfg)
   {
    PhWalkClearInv(w);
    double lvl;
-   datetime t0;
-   if(!PhFindResistUTurn(rsi,times,shift,hist,cfg,lvl,t0))
+   datetime tPivot;
+   if(!PhFindResistUTurn(rsi,times,shift,hist,cfg,lvl,tPivot))
       return;
-   PhInv_Set(w,L,lvl,t0,times[shift],false,cfg);
+   // level from pivot; line only inside THIS regime (no ghost into prior)
+   PhInv_Set(w,L,lvl,times[shift],times[shift],false,cfg);
+   w.invTime = tPivot;
   }
 
 // BUY: deepest swing LOW clearly <35 in lookback (mirror sell resist)
@@ -146,10 +156,11 @@ void PhInv_StartBuy(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &
   {
    PhWalkClearInv(w);
    double lvl;
-   datetime t0;
-   if(!PhFindSupportUTurn(rsi,times,shift,hist,cfg,lvl,t0))
+   datetime tPivot;
+   if(!PhFindSupportUTurn(rsi,times,shift,hist,cfg,lvl,tPivot))
       return;
-   PhInv_Set(w,L,lvl,t0,times[shift],true,cfg);
+   PhInv_Set(w,L,lvl,times[shift],times[shift],true,cfg);
+   w.invTime = tPivot;
   }
 
 // Only pivots that formed AFTER regime start (no pre-regime ghost INV)

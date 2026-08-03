@@ -3,9 +3,11 @@
 ## Product
 Visual RSI regime EA only — no trading.
 
-## Regime (v1.27 buy support lookback)
+## Regime (v1.28 S&R scoped to regime)
 - Resist = highest swing clearly >65 (gap 2) — never weak near-65 spike
 - Support = lowest swing clearly <35 on BUY enter (lookback) + during buy
+- S&R line starts at regime enter, stops at regime END (INV dead after)
+- No INV → leave on stay >65 (sell) / stay <35 (buy)
 - Leave SELL: cross INV + stay above 65 (spike reject = stay SELL)
 - Leave BUY: break INV + stay below 35 (bounce cancels)
 - Regime colour lock after enter (hold+confirm)

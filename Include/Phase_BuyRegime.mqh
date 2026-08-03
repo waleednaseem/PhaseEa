@@ -24,20 +24,14 @@ void PhBuy_TrackFloor(SPhWalk &w,const SPhConfig &cfg,const double v,const doubl
      }
   }
 
-// true only if INV crossed AND stayed below 35 — touch/bounce cancels
+// leave BUY: break INV + stay <35; if no INV → stay <35 only
 bool PhBuy_Process(SPhWalk &w,const SPhConfig &cfg,const double v)
   {
-   if(!w.invOn)
-     {
-      PhWalkClearInvBreak(w);
-      return(false);
-     }
-
    const int hold = MathMax(1,cfg.holdBars);
    const int need = MathMax(1,cfg.confirmBars);
-   const double inv = w.invLevel;
-   // must break INV and stay under 35 — reclaim cancels
-   const double needBelow = MathMin(inv,cfg.bullHard) - cfg.tol;
+   const double needBelow = w.invOn
+                            ? MathMin(w.invLevel,cfg.bullHard) - cfg.tol
+                            : cfg.bullHard - cfg.tol;
 
    if(v >= needBelow)
      {
