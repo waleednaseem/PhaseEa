@@ -241,6 +241,102 @@ void PhInv_CaptureDuring(SPhWalk &w,SPhSRList &L,const double &rsi[],const datet
      }
   }
 
+// After S&R: last N bars — prefer U-turn/bounce CLOSEST to 35 (sup) / 65 (res)
+void PhInv_Refresh(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &times[],
+                   const int shift,const int hist,const SPhConfig &cfg)
+  {
+   if(!w.invOn || w.invSegIdx < 0)
+      return;
+   if(w.state != PH_BULLISH && w.state != PH_BEARISH)
+      return;
+
+   const int str = MathMax(1,cfg.swingStrength);
+   const int win = MathMax(20,cfg.invRefreshBars);
+   int maxS = MathMin(hist,shift + win);
+   if(w.regimeStartShift > 0)
+      maxS = MathMin(maxS,w.regimeStartShift);
+
+   bool found = false;
+   double bestRaw = 0.0;
+   double bestDist = 1.0e9; // distance to 35 or 65 — smaller = prefer
+   datetime bestT = 0;
+
+   for(int s = shift; s <= maxS; s++)
+     {
+      const double raw = rsi[s];
+      if(w.state == PH_BEARISH)
+        {
+         if(!PhInv_ResistPeakRaw(raw,cfg))
+            continue;
+         if(!PhResistPivot(rsi,s,hist,str))
+            continue;
+         // closer to 65 from above = more faida
+         const double dist = raw - cfg.bearCap;
+         if(!found || dist < bestDist - 1.0e-9)
+           {
+            found    = true;
+            bestDist = dist;
+            bestRaw  = raw;
+            bestT    = times[s];
+           }
+        }
+      else
+        {
+         if(!PhInv_SupportTroughRaw(raw,cfg))
+            continue;
+         if(!PhSupportPivot(rsi,s,hist,str))
+            continue;
+         // closer to 35 from below = more faida
+         const double dist = cfg.bullHard - raw;
+         if(!found || dist < bestDist - 1.0e-9)
+           {
+            found    = true;
+            bestDist = dist;
+            bestRaw  = raw;
+            bestT    = times[s];
+           }
+        }
+     }
+
+   if(!found)
+      return;
+
+   const double use = (w.state == PH_BEARISH)
+                      ? PhInv_ClampResist(bestRaw,cfg)
+                      : PhInv_ClampSupport(bestRaw,cfg);
+   if(w.state == PH_BEARISH)
+     {
+      if(!PhInv_OkResist(use,cfg))
+         return;
+     }
+   else
+     {
+      if(!PhInv_OkSupport(use,cfg))
+         return;
+     }
+
+   // only convert if new level is closer to 35/65 than current (or first fill)
+   if(w.state == PH_BEARISH)
+     {
+      const double curDist = w.invLevel - cfg.bearCap;
+      if(bestDist > curDist + 0.05)
+         return; // farther from 65 — keep current
+     }
+   else
+     {
+      const double curDist = cfg.bullHard - w.invLevel;
+      if(bestDist > curDist + 0.05)
+         return; // farther from 35 — keep current
+     }
+
+   if(MathAbs(use - w.invLevel) >= 0.05)
+      PhWalkClearInvBreak(w);
+
+   w.invLevel = use;
+   w.invTime  = bestT;
+   PhSRListSetLevel(L,w.invSegIdx,use);
+  }
+
 void PhInv_Follow(SPhWalk &w,SPhSRList &L,const datetime tNow)
   {
    if(!w.invOn || w.invSegIdx < 0)

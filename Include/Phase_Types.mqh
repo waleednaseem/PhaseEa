@@ -26,7 +26,8 @@ struct SPhConfig
    int    capFailCount;
    int    historyBars;
    int    swingStrength;
-   int    invLookback;  // max bars to search U-turn on sell enter
+   int    invLookback;  // max bars to search U-turn on enter
+   int    invRefreshBars; // after S&R: re-scan this many bars, level can move
   };
 
 struct SPhWalk
@@ -97,6 +98,14 @@ void PhSRListExtend(SPhSRList &L,const int idx,const datetime tEnd)
       L.seg[idx].t1 = tEnd;
    if(tEnd < L.seg[idx].t0)
       L.seg[idx].t0 = tEnd;
+  }
+
+void PhSRListSetLevel(SPhSRList &L,const int idx,const double lvl)
+  {
+   if(idx < 0 || idx >= L.count)
+      return;
+   L.seg[idx].level0 = lvl;
+   L.seg[idx].level1 = lvl;
   }
 
 void PhWalkReset(SPhWalk &w)

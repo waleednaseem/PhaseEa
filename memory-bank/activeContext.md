@@ -1,5 +1,5 @@
 ## Current focus
-v1.31: SELL/BUY S&R — nearest chota U-turn (1-bar fallback), clamp into 20+g..80-g.
+v1.34: S&R refresh prefers U-turn closest to 35 (support) / 65 (resist); far OK until closer appears.
 
 ## Decisions
 - Past closed-bar regime colours never recalculated

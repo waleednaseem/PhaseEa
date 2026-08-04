@@ -28,8 +28,9 @@ void PhConfigLoad(SPhConfig &cfg,
    cfg.holdBars      = MathMax(1,holdBars);
    cfg.capFailCount  = MathMax(1,capFailCount);
    cfg.historyBars   = historyBars;
-   cfg.swingStrength = MathMax(1,swingStr);
-   cfg.invLookback   = MathMax(80,cfg.historyBars); // full ignite window, not just 80
+   cfg.swingStrength  = MathMax(1,swingStr);
+   cfg.invLookback    = MathMax(80,cfg.historyBars);
+   cfg.invRefreshBars = 200; // after S&R: rolling 200, level moves
   }
 
 int PhRegimeLockBars(const SPhConfig &cfg)
@@ -85,6 +86,7 @@ void PhRegimeStep(SPhWalk &w,SPhSRList &L,
      {
       w.barsInRegime++;
       PhInv_CaptureDuring(w,L,rsi,times,shift,hist,cfg);
+      PhInv_Refresh(w,L,rsi,times,shift,hist,cfg);
       if(w.barsInRegime > lockBars && PhBuy_Process(w,cfg,v))
         {
          PhInv_Close(w,L,t);
@@ -97,6 +99,7 @@ void PhRegimeStep(SPhWalk &w,SPhSRList &L,
      {
       w.barsInRegime++;
       PhInv_CaptureDuring(w,L,rsi,times,shift,hist,cfg);
+      PhInv_Refresh(w,L,rsi,times,shift,hist,cfg);
       if(w.barsInRegime > lockBars && PhSell_Process(w,cfg,v))
         {
          PhInv_Close(w,L,t);
