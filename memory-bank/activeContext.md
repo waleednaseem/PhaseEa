@@ -1,5 +1,5 @@
 ## Current focus
-v1.34: S&R refresh prefers U-turn closest to 35 (support) / 65 (resist); far OK until closer appears.
+v1.35: S&R gap — support max 27 (not near 35), resist min 68 (not near 65).
 
 ## Decisions
 - Past closed-bar regime colours never recalculated

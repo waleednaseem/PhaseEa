@@ -19,8 +19,10 @@ struct SPhConfig
    double bearCap;      // zone edge: resist must be clearly ABOVE this
    double tol;
    double invGap;       // min distance from 20/35/65/80 (never on edge)
-   double rsiFloor;     // S&R must stay clearly ABOVE this (20)
-   double rsiCeil;      // S&R must stay clearly BELOW this (80)
+   double rsiFloor;     // S&R clearly ABOVE (20)
+   double rsiCeil;      // S&R clearly BELOW (80)
+   double invNearSup;   // support never closer to 35 than this (27)
+   double invNearRes;   // resist never closer to 65 than this (68)
    int    confirmBars;
    int    holdBars;
    int    capFailCount;
