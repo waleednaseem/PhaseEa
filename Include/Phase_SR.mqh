@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                                 Phase_SR.mqh     |
-//| INV = exact U-turn RSI — NEVER at/near 35 or 65                  |
-//| Support: bounce clearly <35 | Resist: HIGHEST peak clearly >65   |
+//| INV = U-turn RSI — find peak/bounce, clamp into (20+g .. 80-g)    |
+//| Support: bounce clearly <35 | Resist: peak clearly >65           |
 //+------------------------------------------------------------------+
 #ifndef PHASE_SR_MQH
 #define PHASE_SR_MQH
@@ -34,6 +34,16 @@ bool PhIsSwingHigh(const double &rsi[],const int shift,const int hist,const int 
    return(true);
   }
 
+bool PhIsLocalHigh(const double &rsi[],const int shift,const int hist)
+  {
+   return(PhIsSwingHigh(rsi,shift,hist,1));
+  }
+
+bool PhIsLocalLow(const double &rsi[],const int shift,const int hist)
+  {
+   return(PhIsSwingLow(rsi,shift,hist,1));
+  }
+
 double PhInv_Gap(const SPhConfig &cfg)
   {
    return(MathMax(2.0,cfg.invGap));
@@ -41,95 +51,131 @@ double PhInv_Gap(const SPhConfig &cfg)
 
 bool PhInv_OkSupport(const double lvl,const SPhConfig &cfg)
   {
-   return(lvl > 0.0 && lvl < cfg.bullHard - PhInv_Gap(cfg));
+   const double g = PhInv_Gap(cfg);
+   return(lvl > cfg.rsiFloor + g && lvl < cfg.bullHard - g);
   }
 
 bool PhInv_OkResist(const double lvl,const SPhConfig &cfg)
   {
-   return(lvl > cfg.bearCap + PhInv_Gap(cfg) && lvl < 100.0);
+   const double g = PhInv_Gap(cfg);
+   return(lvl > cfg.bearCap + g && lvl < cfg.rsiCeil - g);
   }
 
-// HIGHEST swing HIGH clearly >65 in window — not the nearest weak spike
+double PhInv_ClampSupport(const double raw,const SPhConfig &cfg)
+  {
+   const double g = PhInv_Gap(cfg);
+   double lvl = raw;
+   if(lvl < cfg.rsiFloor + g)
+      lvl = cfg.rsiFloor + g;
+   if(lvl > cfg.bullHard - g)
+      lvl = cfg.bullHard - g;
+   return(lvl);
+  }
+
+double PhInv_ClampResist(const double raw,const SPhConfig &cfg)
+  {
+   const double g = PhInv_Gap(cfg);
+   double lvl = raw;
+   if(lvl < cfg.bearCap + g)
+      lvl = cfg.bearCap + g;
+   if(lvl > cfg.rsiCeil - g)
+      lvl = cfg.rsiCeil - g;
+   return(lvl);
+  }
+
+bool PhInv_ResistPeakRaw(const double raw,const SPhConfig &cfg)
+  {
+   return(raw > cfg.bearCap + PhInv_Gap(cfg));
+  }
+
+bool PhInv_SupportTroughRaw(const double raw,const SPhConfig &cfg)
+  {
+   return(raw < cfg.bullHard - PhInv_Gap(cfg));
+  }
+
+bool PhResistPivot(const double &rsi[],const int s,const int hist,const int str)
+  {
+   if(PhIsSwingHigh(rsi,s,hist,str))
+      return(true);
+   if(str > 1 && PhIsLocalHigh(rsi,s,hist))
+      return(true);
+   return(false);
+  }
+
+bool PhSupportPivot(const double &rsi[],const int s,const int hist,const int str)
+  {
+   if(PhIsSwingLow(rsi,s,hist,str))
+      return(true);
+   if(str > 1 && PhIsLocalLow(rsi,s,hist))
+      return(true);
+   return(false);
+  }
+
+// NEAREST local/swing HIGH clearly >65 — clamp level <80
 bool PhFindResistUTurn(const double &rsi[],const datetime &times[],
                        const int fromShift,const int hist,const SPhConfig &cfg,
                        double &lvl,datetime &tOut)
   {
    const int str = MathMax(1,cfg.swingStrength);
    const int maxS = MathMin(hist,fromShift + MathMax(20,cfg.invLookback));
-   bool found = false;
-   double best = -1.0;
-   datetime bestT = 0;
    for(int s = fromShift; s <= maxS; s++)
      {
-      if(!PhInv_OkResist(rsi[s],cfg))
+      const double raw = rsi[s];
+      if(!PhInv_ResistPeakRaw(raw,cfg))
          continue;
-      if(!PhIsSwingHigh(rsi,s,hist,str))
+      if(!PhResistPivot(rsi,s,hist,str))
          continue;
-      if(!found || rsi[s] > best)
-        {
-         found = true;
-         best  = rsi[s];
-         bestT = times[s];
-        }
+      lvl  = PhInv_ClampResist(raw,cfg);
+      tOut = times[s];
+      return(true);
      }
-   if(!found)
-      return(false);
-   lvl  = best;
-   tOut = bestT;
-   return(true);
+   return(false);
   }
 
+// NEAREST local/swing LOW clearly <35 — clamp level >20
 bool PhFindSupportUTurn(const double &rsi[],const datetime &times[],
                         const int fromShift,const int hist,const SPhConfig &cfg,
                         double &lvl,datetime &tOut)
   {
    const int str = MathMax(1,cfg.swingStrength);
    const int maxS = MathMin(hist,fromShift + MathMax(20,cfg.invLookback));
-   bool found = false;
-   double best = 999.0;
-   datetime bestT = 0;
    for(int s = fromShift; s <= maxS; s++)
      {
-      if(!PhInv_OkSupport(rsi[s],cfg))
+      const double raw = rsi[s];
+      if(!PhInv_SupportTroughRaw(raw,cfg))
          continue;
-      if(!PhIsSwingLow(rsi,s,hist,str))
+      if(!PhSupportPivot(rsi,s,hist,str))
          continue;
-      if(!found || rsi[s] < best)
-        {
-         found = true;
-         best  = rsi[s];
-         bestT = times[s];
-        }
+      lvl  = PhInv_ClampSupport(raw,cfg);
+      tOut = times[s];
+      return(true);
      }
-   if(!found)
-      return(false);
-   lvl  = best;
-   tOut = bestT;
-   return(true);
+   return(false);
   }
 
 void PhInv_Set(SPhWalk &w,SPhSRList &L,const double lvl,const datetime t0,
                const datetime tNow,const bool isSupport,const SPhConfig &cfg)
   {
+   double use = isSupport ? PhInv_ClampSupport(lvl,cfg) : PhInv_ClampResist(lvl,cfg);
+
    if(isSupport)
      {
-      if(!PhInv_OkSupport(lvl,cfg))
+      if(!PhInv_OkSupport(use,cfg))
          return;
      }
    else
      {
-      if(!PhInv_OkResist(lvl,cfg))
+      if(!PhInv_OkResist(use,cfg))
          return;
      }
 
-   w.invLevel = lvl;
+   w.invLevel = use;
    w.invTime  = t0;
    w.invOn    = true;
    PhWalkClearInvBreak(w);
-   w.invSegIdx = PhSRListAdd(L,t0,tNow,lvl,isSupport);
+   w.invSegIdx = PhSRListAdd(L,t0,tNow,use,isSupport);
   }
 
-// freeze S&R at regime end — line stops, INV dead
 void PhInv_Close(SPhWalk &w,SPhSRList &L,const datetime tEnd)
   {
    if(w.invOn && w.invSegIdx >= 0 && tEnd != 0)
@@ -145,12 +191,10 @@ void PhInv_StartSell(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime 
    datetime tPivot;
    if(!PhFindResistUTurn(rsi,times,shift,hist,cfg,lvl,tPivot))
       return;
-   // level from pivot; line only inside THIS regime (no ghost into prior)
    PhInv_Set(w,L,lvl,times[shift],times[shift],false,cfg);
    w.invTime = tPivot;
   }
 
-// BUY: deepest swing LOW clearly <35 in lookback (mirror sell resist)
 void PhInv_StartBuy(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &times[],
                     const int shift,const int hist,const SPhConfig &cfg)
   {
@@ -163,7 +207,6 @@ void PhInv_StartBuy(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &
    w.invTime = tPivot;
   }
 
-// Only pivots that formed AFTER regime start (no pre-regime ghost INV)
 void PhInv_CaptureDuring(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &times[],
                          const int shift,const int hist,const SPhConfig &cfg)
   {
@@ -174,7 +217,6 @@ void PhInv_CaptureDuring(SPhWalk &w,SPhSRList &L,const double &rsi[],const datet
    const int piv = shift + str;
    if(piv + str > hist || piv - str < 1)
       return;
-   // pivot must be during this regime (newer or equal to enter bar)
    if(w.regimeStartShift > 0 && piv > w.regimeStartShift)
       return;
 
@@ -183,19 +225,18 @@ void PhInv_CaptureDuring(SPhWalk &w,SPhSRList &L,const double &rsi[],const datet
 
    if(w.state == PH_BULLISH)
      {
-      if(!PhInv_OkSupport(pv,cfg))
+      if(!PhInv_SupportTroughRaw(pv,cfg))
          return;
-      if(!PhIsSwingLow(rsi,piv,hist,str))
+      if(!PhSupportPivot(rsi,piv,hist,str))
          return;
       PhInv_Set(w,L,pv,pt,times[shift],true,cfg);
      }
    else if(w.state == PH_BEARISH)
      {
-      if(!PhInv_OkResist(pv,cfg))
+      if(!PhInv_ResistPeakRaw(pv,cfg))
          return;
-      if(!PhIsSwingHigh(rsi,piv,hist,str))
+      if(!PhResistPivot(rsi,piv,hist,str))
          return;
-      // during sell: only set if none from StartSell; prefer higher peak
       PhInv_Set(w,L,pv,pt,times[shift],false,cfg);
      }
   }

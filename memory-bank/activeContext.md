@@ -1,5 +1,5 @@
 ## Current focus
-v1.29: history freeze — ignite 500 bars once, then forward-only regime (no rewrite).
+v1.31: SELL/BUY S&R — nearest chota U-turn (1-bar fallback), clamp into 20+g..80-g.
 
 ## Decisions
 - Past closed-bar regime colours never recalculated

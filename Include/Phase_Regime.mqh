@@ -21,13 +21,15 @@ void PhConfigLoad(SPhConfig &cfg,
    cfg.bearCapLo     = bearCapLo;
    cfg.bearCap       = bearCap;
    cfg.tol           = tol;
-   cfg.invGap        = 2.0;   // never stick S&R on/near 35 or 65
+   cfg.invGap        = 2.0;   // never stick S&R on/near 20/35/65/80
+   cfg.rsiFloor      = 20.0;
+   cfg.rsiCeil       = 80.0;
    cfg.confirmBars   = MathMax(1,confirmBars);
    cfg.holdBars      = MathMax(1,holdBars);
    cfg.capFailCount  = MathMax(1,capFailCount);
    cfg.historyBars   = historyBars;
    cfg.swingStrength = MathMax(1,swingStr);
-   cfg.invLookback   = 80;
+   cfg.invLookback   = MathMax(80,cfg.historyBars); // full ignite window, not just 80
   }
 
 int PhRegimeLockBars(const SPhConfig &cfg)

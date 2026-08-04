@@ -7,8 +7,8 @@ Visual RSI regime EA only — no trading.
 - OnInit: ONE 500-bar walk (ignite) → freeze `g_regimes` + keep `g_walk`
 - New bar: `PhRegimeAdvance` only — never rebuild past colours
 - Stick until INV/S&R leave rules fire (Buy/Sell Process)
-- Resist = highest swing clearly >65 (gap 2)
-- Support = lowest swing clearly <35
+- Resist = highest swing clearly >65 & <80 (gap 2; not on 65/80)
+- Support = lowest swing clearly <35 & >20 (gap 2; not on 20/35)
 - S&R line: regime enter → regime END
 - No INV → leave stay >65 (sell) / <35 (buy)
 
