@@ -1,8 +1,8 @@
 ## Current focus
-v1.28: regime END pe S&R line stop (INV dead); lookback ghost fix; no-INV exit fallback.
+v1.29: history freeze — ignite 500 bars once, then forward-only regime (no rewrite).
 
 ## Decisions
-- S&R line sirf apni regime ke andar (start=enter, end=regime close)
-- Lookback level pivot se, draw pehli regime mein nahi
-- Bina INV: leave SELL on stay >65 / leave BUY on stay <35
-- Resist = highest >65+gap | Support = lowest <35-gap
+- Past closed-bar regime colours never recalculated
+- Stick until INV/S&R leave (existing Buy/Sell Process)
+- `g_walk` + `g_srList` persist after ignite
+- S&R line sirf apni regime ke andar

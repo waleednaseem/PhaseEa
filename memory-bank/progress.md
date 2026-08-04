@@ -9,4 +9,4 @@
 - Live chart visual QA (attach EA on chart)
 
 ## Known issues
-- None
+- Fixed v1.29: history rewrite / unpredictable regime colour flips

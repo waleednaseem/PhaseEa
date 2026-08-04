@@ -1,5 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                            Phase_Regime.mqh      |
+//| Ignite: one 500-bar walk at start. Then forward-only (no rewrite)|
 //+------------------------------------------------------------------+
 #ifndef PHASE_REGIME_MQH
 #define PHASE_REGIME_MQH
@@ -61,57 +62,97 @@ void PhEnterBear(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &tim
    PhInv_StartSell(w,L,rsi,times,shift,hist,cfg);
   }
 
-void PhBuildRegimes(const double &rsi[],const datetime &times[],const int hist,
-                    const SPhConfig &cfg,ENUM_PH_REGIME &regimes[],SPhSRList &srList)
+// One closed bar — leave only via INV/S&R rules (Buy/Sell Process)
+void PhRegimeStep(SPhWalk &w,SPhSRList &L,
+                  const double &rsi[],const datetime &times[],
+                  const int shift,const int hist,const SPhConfig &cfg,
+                  ENUM_PH_REGIME &regimes[])
   {
-   SPhWalk w;
-   PhWalkReset(w);
-   PhSRListClear(srList);
+   if(shift < 1 || shift > hist)
+      return;
+
+   const double v = rsi[shift];
+   const double vOlder = (shift + 1 <= hist ? rsi[shift + 1] : v);
+   const datetime t = times[shift];
    const int lockBars = PhRegimeLockBars(cfg);
 
-   for(int shift = hist; shift >= 1; shift--)
+   PhSell_TrackCap(w,cfg,v);
+   PhBuy_TrackFloor(w,cfg,v,vOlder);
+
+   if(w.state == PH_BULLISH)
      {
-      const double v = rsi[shift];
-      const double vOlder = (shift + 1 <= hist ? rsi[shift + 1] : v);
-      const datetime t = times[shift];
-
-      PhSell_TrackCap(w,cfg,v);
-      PhBuy_TrackFloor(w,cfg,v,vOlder);
-
-      if(w.state == PH_BULLISH)
+      w.barsInRegime++;
+      PhInv_CaptureDuring(w,L,rsi,times,shift,hist,cfg);
+      if(w.barsInRegime > lockBars && PhBuy_Process(w,cfg,v))
         {
-         w.barsInRegime++;
-         PhInv_CaptureDuring(w,srList,rsi,times,shift,hist,cfg);
-         if(w.barsInRegime > lockBars && PhBuy_Process(w,cfg,v))
-           {
-            PhInv_Close(w,srList,t);   // S&R stops at regime END
-            PhEnterBear(w,srList,rsi,times,shift,hist,cfg);
-           }
-         else
-            PhInv_Follow(w,srList,t);
-        }
-      else if(w.state == PH_BEARISH)
-        {
-         w.barsInRegime++;
-         PhInv_CaptureDuring(w,srList,rsi,times,shift,hist,cfg);
-         if(w.barsInRegime > lockBars && PhSell_Process(w,cfg,v))
-           {
-            PhInv_Close(w,srList,t);
-            PhEnterBull(w,srList,rsi,times,shift,hist,cfg);
-           }
-         else
-            PhInv_Follow(w,srList,t);
+         PhInv_Close(w,L,t);
+         PhEnterBear(w,L,rsi,times,shift,hist,cfg);
         }
       else
-        {
-         if(PhBuy_TryEnter(w,cfg,v))
-            PhEnterBull(w,srList,rsi,times,shift,hist,cfg);
-         else if(PhSell_TryEnter(w,cfg,v))
-            PhEnterBear(w,srList,rsi,times,shift,hist,cfg);
-        }
-
-      regimes[shift] = w.state;
+         PhInv_Follow(w,L,t);
      }
+   else if(w.state == PH_BEARISH)
+     {
+      w.barsInRegime++;
+      PhInv_CaptureDuring(w,L,rsi,times,shift,hist,cfg);
+      if(w.barsInRegime > lockBars && PhSell_Process(w,cfg,v))
+        {
+         PhInv_Close(w,L,t);
+         PhEnterBull(w,L,rsi,times,shift,hist,cfg);
+        }
+      else
+         PhInv_Follow(w,L,t);
+     }
+   else
+     {
+      if(PhBuy_TryEnter(w,cfg,v))
+         PhEnterBull(w,L,rsi,times,shift,hist,cfg);
+      else if(PhSell_TryEnter(w,cfg,v))
+         PhEnterBear(w,L,rsi,times,shift,hist,cfg);
+     }
+
+   regimes[shift] = w.state;
+  }
+
+// EA start only — full history ignite; walk state kept for forward steps
+void PhBuildRegimes(const double &rsi[],const datetime &times[],const int hist,
+                    const SPhConfig &cfg,ENUM_PH_REGIME &regimes[],
+                    SPhSRList &srList,SPhWalk &w)
+  {
+   PhWalkReset(w);
+   PhSRListClear(srList);
+
+   for(int shift = hist; shift >= 1; shift--)
+      PhRegimeStep(w,srList,rsi,times,shift,hist,cfg,regimes);
+  }
+
+// New closed bar: slide frozen history, bump enter-shift, step once
+void PhRegimeAdvance(SPhWalk &w,SPhSRList &L,
+                     const double &rsi[],const datetime &times[],
+                     const int hist,const SPhConfig &cfg,
+                     ENUM_PH_REGIME &regimes[])
+  {
+   const int oldSize = ArraySize(regimes);
+   ENUM_PH_REGIME prev[];
+   ArrayResize(prev,oldSize);
+   for(int i = 0; i < oldSize; i++)
+      prev[i] = regimes[i];
+
+   ArrayResize(regimes,hist + 1);
+   ArrayInitialize(regimes,(int)PH_NEUTRAL);
+
+   const int copyMax = MathMin(hist - 1,oldSize - 1);
+   for(int i = 1; i <= copyMax; i++)
+     {
+      if(i + 1 <= hist)
+         regimes[i + 1] = prev[i];
+     }
+
+   // enter bar is one shift older after the new bar
+   if(w.regimeStartShift > 0)
+      w.regimeStartShift++;
+
+   PhRegimeStep(w,L,rsi,times,1,hist,cfg,regimes);
   }
 
 #endif

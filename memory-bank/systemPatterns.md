@@ -14,12 +14,11 @@ Experts/Phase/
 ```
 
 ## Flow
-OnInit → LoadConfig → iRSI + Phase_RSI
-OnTick → PhBuildRegimes (S&R swings) → paint strips/boxes/signals + RSI S&R lines
+OnInit → IgniteHistory (one PhBuildRegimes) → freeze g_regimes + g_walk
+OnTick new bar → PhRegimeAdvance (shift frozen + step shift=1) → paint
 
 ## Conventions
-- Config: `g_cfg` loaded once (no re-declare zones every bar)
-- Buffers: `g_rsi[]`, `g_regimes[]` reused
-- INV never at/near 35/65 (`invGap`); S&R line only inside its regime (stop on END)
-- Regime colour lock after enter (`barsInRegime` > hold+confirm)
+- Config: `g_cfg` loaded once
+- No full 500-bar re-walk after ignite
+- INV never at/near 35/65; S&R stops on regime END
 - Objects: prefix `PH_`

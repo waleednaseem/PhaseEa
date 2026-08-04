@@ -2,7 +2,7 @@
 //|                                                       Phase.mq5  |
 //+------------------------------------------------------------------+
 #property copyright "Phase"
-#property version   "1.28"
+#property version   "1.29"
 
 #include "Include/Phase_Types.mqh"
 #include "Include/Phase_Regime.mqh"
@@ -42,6 +42,8 @@ input color              InpResistClr      = clrOrangeRed;  // SELL INV (U-turn 
 
 SPhConfig      g_cfg;
 SPhSRList      g_srList;
+SPhWalk        g_walk;
+bool           g_ignited    = false;
 int            g_rsiHandle  = INVALID_HANDLE;
 int            g_rsiWindow  = -1;
 datetime       g_lastBar    = 0;
@@ -88,31 +90,8 @@ void AttachPhaseRsi()
    g_rsiWindow = sub;
   }
 
-void RefreshAll()
+void PaintAll(const int hist)
   {
-   int bars = Bars(_Symbol,_Period);
-   int need = g_cfg.historyBars + 20;
-   if(need > bars) need = bars;
-   if(need < 30)   return;
-
-   ArraySetAsSeries(g_rsi,true);
-   ArraySetAsSeries(g_times,true);
-   if(CopyBuffer(g_rsiHandle,0,0,need,g_rsi) < 30) return;
-   if(CopyTime(_Symbol,_Period,0,need,g_times) < 30) return;
-
-   int hist = MathMin(g_cfg.historyBars,ArraySize(g_rsi) - 2);
-   if(hist < 5) return;
-
-   for(int i = 0; i < ArraySize(g_rsi); i++)
-     {
-      if(g_rsi[i] == EMPTY_VALUE || g_rsi[i] < 0.0 || g_rsi[i] > 100.0)
-         g_rsi[i] = 50.0;
-     }
-
-   ArrayResize(g_regimes,hist + 1);
-   ArrayInitialize(g_regimes,(int)PH_NEUTRAL);
-   PhBuildRegimes(g_rsi,g_times,hist,g_cfg,g_regimes,g_srList);
-
    g_lastRegime = g_regimes[1];
    PhUpdateBackground(InpShowBackground,g_lastRegime);
 
@@ -128,12 +107,68 @@ void RefreshAll()
    ChartRedraw(0);
   }
 
+bool CopyRsiTimes(int &hist)
+  {
+   int bars = Bars(_Symbol,_Period);
+   int need = g_cfg.historyBars + 20;
+   if(need > bars) need = bars;
+   if(need < 30)   return(false);
+
+   ArraySetAsSeries(g_rsi,true);
+   ArraySetAsSeries(g_times,true);
+   if(CopyBuffer(g_rsiHandle,0,0,need,g_rsi) < 30) return(false);
+   if(CopyTime(_Symbol,_Period,0,need,g_times) < 30) return(false);
+
+   hist = MathMin(g_cfg.historyBars,ArraySize(g_rsi) - 2);
+   if(hist < 5) return(false);
+
+   for(int i = 0; i < ArraySize(g_rsi); i++)
+     {
+      if(g_rsi[i] == EMPTY_VALUE || g_rsi[i] < 0.0 || g_rsi[i] > 100.0)
+         g_rsi[i] = 50.0;
+     }
+   return(true);
+  }
+
+// Start: one full walk. Live: only advance newest closed bar (history frozen)
+void IgniteHistory()
+  {
+   int hist = 0;
+   if(!CopyRsiTimes(hist))
+      return;
+
+   ArrayResize(g_regimes,hist + 1);
+   ArrayInitialize(g_regimes,(int)PH_NEUTRAL);
+   PhBuildRegimes(g_rsi,g_times,hist,g_cfg,g_regimes,g_srList,g_walk);
+   g_ignited = true;
+   PaintAll(hist);
+   Print("Phase: ignited ",hist," bars — regime frozen forward-only");
+  }
+
+void AdvanceBar()
+  {
+   if(!g_ignited)
+     {
+      IgniteHistory();
+      return;
+     }
+
+   int hist = 0;
+   if(!CopyRsiTimes(hist))
+      return;
+
+   PhRegimeAdvance(g_walk,g_srList,g_rsi,g_times,hist,g_cfg,g_regimes);
+   PaintAll(hist);
+  }
+
 int OnInit()
   {
    LoadConfig();
    ArraySetAsSeries(g_rsi,true);
    ArraySetAsSeries(g_times,true);
    PhSRListClear(g_srList);
+   PhWalkReset(g_walk);
+   g_ignited = false;
 
    g_rsiHandle = iRSI(_Symbol,_Period,InpRsiPeriod,InpAppliedPrice);
    if(g_rsiHandle == INVALID_HANDLE)
@@ -147,7 +182,7 @@ int OnInit()
    ChartSetInteger(0,CHART_SHOW_GRID,false);
    ChartSetInteger(0,CHART_COLOR_BACKGROUND,clrBlack);
    EventSetTimer(1);
-   RefreshAll();
+   IgniteHistory();
    return(INIT_SUCCEEDED);
   }
 
@@ -155,6 +190,7 @@ void OnDeinit(const int reason)
   {
    EventKillTimer();
    PhDeleteAll();
+   g_ignited = false;
    if(g_rsiHandle != INVALID_HANDLE)
      {
       IndicatorRelease(g_rsiHandle);
@@ -177,7 +213,7 @@ void OnTick()
    datetime t = iTime(_Symbol,_Period,0);
    if(t == 0 || t == g_lastBar) return;
    g_lastBar = t;
-   RefreshAll();
+   AdvanceBar();
   }
 
 void OnTimer()
