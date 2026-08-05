@@ -14,7 +14,8 @@ Visual RSI regime EA only — no trading.
 
 ## Drawing
 - Prefix `PH_`
-- Modules: Buy/Sell/Regime/SR/Draw + Types
+- Modules: Buy/Sell/Regime/SR/Draw/Dash + Types
+- Dash: top-right M1..H1 regime pills (green/red)
 
 ## Companion
 `Indicators/Phase_RSI.mq5` — RSI(14), levels 20/35/40/50/60/65/80

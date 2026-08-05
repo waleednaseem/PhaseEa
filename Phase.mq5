@@ -2,11 +2,12 @@
 //|                                                       Phase.mq5  |
 //+------------------------------------------------------------------+
 #property copyright "Phase"
-#property version   "1.35"
+#property version   "1.37"
 
 #include "Include/Phase_Types.mqh"
 #include "Include/Phase_Regime.mqh"
 #include "Include/Phase_Draw.mqh"
+#include "Include/Phase_Dash.mqh"
 
 input group "=== RSI / CB Zones ==="
 input int                InpRsiPeriod      = 14;
@@ -28,6 +29,7 @@ input bool               InpShowHistory    = true;
 input bool               InpShowBoxes      = true;
 input bool               InpShowSignals    = true;
 input bool               InpShowRsiSR      = true;
+input bool               InpShowDash       = true;  // M1..H1 colour dots (top-right)
 input bool               InpAttachRsi      = true;
 input color              InpBullColor      = C'12,55,32';
 input color              InpBearColor      = C'70,18,22';
@@ -37,12 +39,23 @@ input color              InpBearBoxColor   = C'160,40,45';
 input color              InpBuySignalClr   = clrLime;
 input color              InpSellSignalClr  = clrRed;
 input color              InpEndSignalClr   = clrSilver;
-input color              InpSupportClr     = clrAqua;       // BUY INV (bounce clearly <35)
-input color              InpResistClr      = clrOrangeRed;  // SELL INV (U-turn clearly >65)
+input color              InpSupportClr     = clrAqua;
+input color              InpResistClr      = clrOrangeRed;
+
+input group "=== Dashboard / Loss ==="
+input bool               InpShowLossMonitor = true;   // LOSS panel under regime dots
+input long               InpLossMagic       = 0;      // 0 = all magic on this symbol
+input bool               InpResetLossStats  = false;  // reset MaxFloat/MaxDD on init
+input color              InpDashTextClr     = clrWhite;
+input color              InpDashBackClr     = clrBlack;
+input color              InpDashBorderClr   = C'60,60,66';
+input color              InpLossClr         = clrOrangeRed;
+input color              InpProfitClr       = clrLime;
 
 SPhConfig      g_cfg;
 SPhSRList      g_srList;
 SPhWalk        g_walk;
+SPhDash        g_dash;
 bool           g_ignited    = false;
 int            g_rsiHandle  = INVALID_HANDLE;
 int            g_rsiWindow  = -1;
@@ -90,6 +103,14 @@ void AttachPhaseRsi()
    g_rsiWindow = sub;
   }
 
+void PaintDash(const bool forceCalc)
+  {
+   PhDash_PaintAll(g_dash,InpShowDash,InpShowLossMonitor,g_cfg,forceCalc,
+                   InpLossMagic,false,
+                   InpDashTextClr,InpDashBackClr,InpDashBorderClr,
+                   InpLossClr,InpProfitClr);
+  }
+
 void PaintAll(const int hist)
   {
    g_lastRegime = g_regimes[1];
@@ -104,6 +125,7 @@ void PaintAll(const int hist)
    if(InpShowRsiSR)
       PhPaintRsiSR(g_srList,g_rsiWindow,InpSupportClr,InpResistClr);
 
+   PaintDash(false);
    ChartRedraw(0);
   }
 
@@ -130,7 +152,6 @@ bool CopyRsiTimes(int &hist)
    return(true);
   }
 
-// Start: one full walk. Live: only advance newest closed bar (history frozen)
 void IgniteHistory()
   {
    int hist = 0;
@@ -168,6 +189,7 @@ int OnInit()
    ArraySetAsSeries(g_times,true);
    PhSRListClear(g_srList);
    PhWalkReset(g_walk);
+   PhDash_Init(g_dash);
    g_ignited = false;
 
    g_rsiHandle = iRSI(_Symbol,_Period,InpRsiPeriod,InpAppliedPrice);
@@ -176,6 +198,13 @@ int OnInit()
       Print("Phase: iRSI failed");
       return(INIT_FAILED);
      }
+   if(InpShowDash)
+      PhDash_CreateHandles(g_dash,InpRsiPeriod,InpAppliedPrice);
+   if(InpResetLossStats)
+     {
+      GlobalVariableSet("PH_LM_MaxFloat_" + IntegerToString(InpLossMagic) + "_" + _Symbol,0.0);
+      GlobalVariableSet("PH_LM_MaxDD_" + IntegerToString(InpLossMagic) + "_" + _Symbol,0.0);
+     }
    if(InpAttachRsi)
       AttachPhaseRsi();
 
@@ -183,6 +212,7 @@ int OnInit()
    ChartSetInteger(0,CHART_COLOR_BACKGROUND,clrBlack);
    EventSetTimer(1);
    IgniteHistory();
+   PaintDash(true);
    return(INIT_SUCCEEDED);
   }
 
@@ -190,6 +220,7 @@ void OnDeinit(const int reason)
   {
    EventKillTimer();
    PhDeleteAll();
+   PhDash_Release(g_dash);
    g_ignited = false;
    if(g_rsiHandle != INVALID_HANDLE)
      {
@@ -219,11 +250,18 @@ void OnTick()
 void OnTimer()
   {
    if(InpShowBackground) PhResizeBg();
+   // loss floats update; regime only recalc on new TF bars (no full redraw blink)
+   if(InpShowDash || InpShowLossMonitor)
+      PaintDash(false);
   }
 
 void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
   {
-   if(id == CHARTEVENT_CHART_CHANGE && InpShowBackground)
-      PhResizeBg();
+   if(id == CHARTEVENT_CHART_CHANGE)
+     {
+      if(InpShowBackground) PhResizeBg();
+      if(InpShowDash || InpShowLossMonitor)
+         PaintDash(false);
+     }
   }
 //+------------------------------------------------------------------+

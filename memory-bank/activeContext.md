@@ -1,5 +1,5 @@
 ## Current focus
-v1.35: S&R gap — support max 27 (not near 35), resist min 68 (not near 65).
+v1.37: compact no-blink MTF colour dots + F2E-style LOSS panel under it (top-right).
 
 ## Decisions
 - Past closed-bar regime colours never recalculated

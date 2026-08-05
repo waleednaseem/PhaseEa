@@ -6,11 +6,12 @@ Experts/Phase/
   Phase.mq5
   Include/
     Phase_Types.mqh
-    Phase_SR.mqh            # RSI swing Support/Resist
+    Phase_SR.mqh
     Phase_BuyRegime.mqh
     Phase_SellRegime.mqh
     Phase_Regime.mqh
     Phase_Draw.mqh
+    Phase_Dash.mqh          # M1..H1 regime panel (top-right)
 ```
 
 ## Flow
