@@ -1,12 +1,11 @@
 # Phase — Progress
 
 ## Done
-- Phase_PRD.md + memory-bank + .cursorrules
-- Indicators/Phase_RSI.mq5 (RSI 10, levels, zone fills) — compiles clean
-- Phase.mq5: 60-bar score regime, dark green/red bg, 500-bar history strips, body boxes, attach Phase_RSI — compiles clean
+- Regime freeze (ignite-once) + S&R + Phase dash/LOSS
+- v1.39: Div + HD + Div-related BOS/INV (Future2EA port, visual only)
 
 ## Left
-- Live chart visual QA (attach EA on chart)
+- Chart pe Div/BOS/HD visual QA
 
 ## Known issues
 - Fixed v1.29: history rewrite / unpredictable regime colour flips

@@ -2,26 +2,51 @@
 //|                                                       Phase.mq5  |
 //+------------------------------------------------------------------+
 #property copyright "Phase"
-#property version   "1.37"
+#property version   "1.40"
 
 #include "Include/Phase_Types.mqh"
 #include "Include/Phase_Regime.mqh"
 #include "Include/Phase_Draw.mqh"
 #include "Include/Phase_Dash.mqh"
+#include "Include/Phase_DivEngine.mqh"
 
 input group "=== RSI / CB Zones ==="
 input int                InpRsiPeriod      = 14;
 input ENUM_APPLIED_PRICE InpAppliedPrice   = PRICE_CLOSE;
 input int                InpHistoryBars    = 500;
 input double             InpBullFloor      = 40.0;
-input double             InpBullHard       = 35.0;  // look U-turn/bounce at/below
+input double             InpBullHard       = 35.0;
 input double             InpBearCapLo      = 60.0;
-input double             InpBearCap        = 65.0;  // look U-turn/bounce at/above
+input double             InpBearCap        = 65.0;
 input double             InpRsiTol         = 0.5;
-input int                InpConfirmBars    = 2;     // bars must STAY beyond INV after cross
-input int                InpHoldBars       = 3;     // bars to arm INV cross / breakout
+input int                InpConfirmBars    = 2;
+input int                InpHoldBars       = 3;
 input int                InpCapFailCount   = 2;
-input int                InpSwingStrength  = 2;     // U-turn pivot size
+input int                InpSwingStrength  = 2;
+
+input group "=== Divergence / BOS / HD ==="
+input bool               InpShowDiv        = true;
+input bool               InpShowDivLines   = true;
+input bool               InpShowDivBoxes   = true;   // HD boxes
+input bool               InpShowBos        = true;   // white BOS line
+input int                InpPivotLeft      = 2;
+input int                InpPivotRight     = 2;
+input int                InpMinDivBars     = 3;
+input int                InpMaxDivBars     = 100;
+input int                InpMinHdBars      = 4;
+input int                InpMaxHdBars      = 40;
+input int                InpBosMaxCandles  = 50;
+input int                InpDivLookback    = 400;
+input EPh_BosBreakMode   InpBosBreakMode   = Ph_BOS_CLOSE;
+input double             InpRsiDeadLow     = 35.0;
+input double             InpRsiDeadHigh    = 65.0;
+input int                InpDivLineWidth   = 2;
+input color              InpColorBearDiv   = clrRed;
+input color              InpColorBullDiv   = clrLime;
+input color              InpColorHidBear   = clrYellow;
+input color              InpColorHidBull   = clrSkyBlue;
+input color              InpColorHidBearBox = clrYellow;
+input color              InpColorHidBullBox = clrSkyBlue;
 
 input group "=== Display ==="
 input bool               InpShowBackground = true;
@@ -29,7 +54,7 @@ input bool               InpShowHistory    = true;
 input bool               InpShowBoxes      = true;
 input bool               InpShowSignals    = true;
 input bool               InpShowRsiSR      = true;
-input bool               InpShowDash       = true;  // M1..H1 colour dots (top-right)
+input bool               InpShowDash       = true;
 input bool               InpAttachRsi      = true;
 input color              InpBullColor      = C'12,55,32';
 input color              InpBearColor      = C'70,18,22';
@@ -38,14 +63,13 @@ input color              InpBullBoxColor   = C'0,140,70';
 input color              InpBearBoxColor   = C'160,40,45';
 input color              InpBuySignalClr   = clrLime;
 input color              InpSellSignalClr  = clrRed;
-input color              InpEndSignalClr   = clrSilver;
 input color              InpSupportClr     = clrAqua;
 input color              InpResistClr      = clrOrangeRed;
 
 input group "=== Dashboard / Loss ==="
-input bool               InpShowLossMonitor = true;   // LOSS panel under regime dots
-input long               InpLossMagic       = 0;      // 0 = all magic on this symbol
-input bool               InpResetLossStats  = false;  // reset MaxFloat/MaxDD on init
+input bool               InpShowLossMonitor = true;
+input long               InpLossMagic       = 0;
+input bool               InpResetLossStats  = false;
 input color              InpDashTextClr     = clrWhite;
 input color              InpDashBackClr     = clrBlack;
 input color              InpDashBorderClr   = C'60,60,66';
@@ -56,6 +80,8 @@ SPhConfig      g_cfg;
 SPhSRList      g_srList;
 SPhWalk        g_walk;
 SPhDash        g_dash;
+SPhDivCfg      g_divCfg;
+SPhDivState    g_div;
 bool           g_ignited    = false;
 int            g_rsiHandle  = INVALID_HANDLE;
 int            g_rsiWindow  = -1;
@@ -71,6 +97,29 @@ void LoadConfig()
                 InpBullFloor,InpBullHard,InpBearCapLo,InpBearCap,
                 InpRsiTol,InpConfirmBars,InpHoldBars,InpCapFailCount,
                 InpHistoryBars,InpSwingStrength);
+
+   PhDiv_CfgDefault(g_divCfg);
+   g_divCfg.pivotLeft     = InpPivotLeft;
+   g_divCfg.pivotRight    = InpPivotRight;
+   g_divCfg.minDivBars    = InpMinDivBars;
+   g_divCfg.maxDivBars    = InpMaxDivBars;
+   g_divCfg.minHdBars     = InpMinHdBars;
+   g_divCfg.maxHdBars     = InpMaxHdBars;
+   g_divCfg.bosMaxCandles = InpBosMaxCandles;
+   g_divCfg.lookback      = InpDivLookback;
+   g_divCfg.deadLow       = InpRsiDeadLow;
+   g_divCfg.deadHigh      = InpRsiDeadHigh;
+   g_divCfg.bosMode       = InpBosBreakMode;
+   g_divCfg.showLines     = InpShowDivLines;
+   g_divCfg.showBoxes     = InpShowDivBoxes;
+   g_divCfg.showBos       = InpShowBos;
+   g_divCfg.bearClr       = InpColorBearDiv;
+   g_divCfg.bullClr       = InpColorBullDiv;
+   g_divCfg.hidBearClr    = InpColorHidBear;
+   g_divCfg.hidBullClr    = InpColorHidBull;
+   g_divCfg.hidBearBox    = InpColorHidBearBox;
+   g_divCfg.hidBullBox    = InpColorHidBullBox;
+   g_divCfg.lineWidth     = InpDivLineWidth;
   }
 
 void AttachPhaseRsi()
@@ -121,7 +170,7 @@ void PaintAll(const int hist)
    if(InpShowBoxes)
       PhPaintBoxes(g_regimes,hist,InpBullBoxColor,InpBearBoxColor);
    if(InpShowSignals)
-      PhPaintSignals(g_regimes,hist,InpBuySignalClr,InpSellSignalClr,InpEndSignalClr);
+      PhPaintSignals(g_regimes,hist,InpBuySignalClr,InpSellSignalClr);
    if(InpShowRsiSR)
       PhPaintRsiSR(g_srList,g_rsiWindow,InpSupportClr,InpResistClr);
 
@@ -152,6 +201,19 @@ bool CopyRsiTimes(int &hist)
    return(true);
   }
 
+void RunDivScan(const bool fullHistory)
+  {
+   if(!InpShowDiv)
+      return;
+   g_div.rsiHandle = g_rsiHandle;
+   g_div.rsiWindow = g_rsiWindow;
+   if(fullHistory)
+      PhDiv_ScanHistory(g_div,g_divCfg);
+   else
+      PhDiv_ProcessLiveBar(g_div,g_divCfg);
+   Ph_UpdateHidButton(0,g_div.showHidden);
+  }
+
 void IgniteHistory()
   {
    int hist = 0;
@@ -163,7 +225,8 @@ void IgniteHistory()
    PhBuildRegimes(g_rsi,g_times,hist,g_cfg,g_regimes,g_srList,g_walk);
    g_ignited = true;
    PaintAll(hist);
-   Print("Phase: ignited ",hist," bars — regime frozen forward-only");
+   RunDivScan(true);
+   Print("Phase: ignited ",hist," bars + Div/BOS/HD");
   }
 
 void AdvanceBar()
@@ -180,6 +243,7 @@ void AdvanceBar()
 
    PhRegimeAdvance(g_walk,g_srList,g_rsi,g_times,hist,g_cfg,g_regimes);
    PaintAll(hist);
+   RunDivScan(false);
   }
 
 int OnInit()
@@ -190,6 +254,7 @@ int OnInit()
    PhSRListClear(g_srList);
    PhWalkReset(g_walk);
    PhDash_Init(g_dash);
+   PhDiv_StateInit(g_div);
    g_ignited = false;
 
    g_rsiHandle = iRSI(_Symbol,_Period,InpRsiPeriod,InpAppliedPrice);
@@ -213,6 +278,8 @@ int OnInit()
    EventSetTimer(1);
    IgniteHistory();
    PaintDash(true);
+   if(InpShowDiv)
+      Ph_UpdateHidButton(0,g_div.showHidden);
    return(INIT_SUCCEEDED);
   }
 
@@ -250,18 +317,26 @@ void OnTick()
 void OnTimer()
   {
    if(InpShowBackground) PhResizeBg();
-   // loss floats update; regime only recalc on new TF bars (no full redraw blink)
    if(InpShowDash || InpShowLossMonitor)
       PaintDash(false);
   }
 
 void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
   {
+   if(id == CHARTEVENT_OBJECT_CLICK && sparam == Ph_HidBtnName())
+     {
+      g_div.showHidden = !g_div.showHidden;
+      PhDiv_RefreshHiddenVisuals(g_div,g_divCfg);
+      ChartRedraw(0);
+      return;
+     }
    if(id == CHARTEVENT_CHART_CHANGE)
      {
       if(InpShowBackground) PhResizeBg();
       if(InpShowDash || InpShowLossMonitor)
          PaintDash(false);
+      if(InpShowDiv)
+         Ph_UpdateHidButton(0,g_div.showHidden);
      }
   }
 //+------------------------------------------------------------------+

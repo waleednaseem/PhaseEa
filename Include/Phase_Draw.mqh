@@ -213,7 +213,7 @@ void PhDrawSignal(const string name,const datetime t,const double price,
   }
 
 void PhPaintSignals(const ENUM_PH_REGIME &regimes[],const int hist,
-                    const color buyClr,const color sellClr,const color endClr)
+                    const color buyClr,const color sellClr)
   {
    PhDeleteByPrefix(g_phPrefix + "SG_");
 
@@ -244,24 +244,14 @@ void PhPaintSignals(const ENUM_PH_REGIME &regimes[],const int hist,
       datetime t  = times[shift];
       string   id = IntegerToString((int)t);
       bool buyStart  = (cur == PH_BULLISH && older != PH_BULLISH);
-      bool buyEnd    = (older == PH_BULLISH && cur != PH_BULLISH);
       bool sellStart = (cur == PH_BEARISH && older != PH_BEARISH);
-      bool sellEnd   = (older == PH_BEARISH && cur != PH_BEARISH);
 
       if(buyStart)
          PhDrawSignal(g_phPrefix + "SG_BUY_" + id,t,lows[shift] - pad,
                       buyClr,233,ANCHOR_TOP,"BUY");
-      if(buyEnd)
-         PhDrawSignal(g_phPrefix + "SG_END_B_" + id,t,
-                      highs[shift] + pad * (sellStart ? 1.8 : 1.0),
-                      endClr,251,ANCHOR_BOTTOM,"END");
       if(sellStart)
          PhDrawSignal(g_phPrefix + "SG_SELL_" + id,t,highs[shift] + pad,
                       sellClr,234,ANCHOR_BOTTOM,"SELL");
-      if(sellEnd)
-         PhDrawSignal(g_phPrefix + "SG_END_S_" + id,t,
-                      lows[shift] - pad * (buyStart ? 1.8 : 1.0),
-                      endClr,251,ANCHOR_TOP,"END");
      }
   }
 

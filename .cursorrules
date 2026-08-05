@@ -12,10 +12,15 @@ Visual RSI regime EA only — no trading.
 - S&R line: regime enter → regime END
 - No INV → leave stay >65 (sell) / <35 (buy)
 
+## Divergence / BOS / HD (v1.39 from Future2EA)
+- Regular Div: nearest RSI tops/bottoms; 1st >60/<45; 2nd dead-zone bahar; path clean; nearest draw
+- HD: nearest-in-time RSI extrema; 35–65; min ΔRSI; no BOS
+- Phase_RSI: levels 20/35/40/50/60/65/80 all white solid
+
 ## Drawing
 - Prefix `PH_`
-- Modules: Buy/Sell/Regime/SR/Draw/Dash + Types
-- Dash: top-right M1..H1 regime pills (green/red)
+- Modules: Buy/Sell/Regime/SR/Draw/Dash/Div* + Types
+- Dash: top-right M1..H1 regime pills (green/red) — Phase own, not F2E
 
 ## Companion
 `Indicators/Phase_RSI.mq5` — RSI(14), levels 20/35/40/50/60/65/80
