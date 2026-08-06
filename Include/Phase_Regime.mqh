@@ -24,8 +24,8 @@ void PhConfigLoad(SPhConfig &cfg,
    cfg.invGap        = 2.0;   // never stick S&R on/near 20/35/65/80
    cfg.rsiFloor       = 20.0;
    cfg.rsiCeil        = 80.0;
-   cfg.invNearSup     = 27.0; // BUY S&R: gap from 35 — max 27
-   cfg.invNearRes     = 68.0; // SELL S&R: gap from 65 — min 68
+   cfg.invNearSup     = 25.0; // BUY S&R: never above 25 (below 35 zone)
+   cfg.invNearRes     = 70.0; // SELL S&R: never below 70 (above 65 zone)
    cfg.confirmBars    = MathMax(1,confirmBars);
    cfg.holdBars      = MathMax(1,holdBars);
    cfg.capFailCount  = MathMax(1,capFailCount);

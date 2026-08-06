@@ -10,4 +10,4 @@ Traders need a clear visual of whether price is in a bullish RSI bounce band (35
 - Body boxes highlight open–close structure after pullback candles
 
 ## UX
-Attach EA to chart → Phase_RSI appears → background + strips + boxes update on new bars. No trade actions.
+Attach EA to chart → Phase_RSI appears → background + strips + boxes update on new bars. Live bounce trades when enabled (lot/SL/TP inputs).

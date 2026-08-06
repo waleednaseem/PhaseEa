@@ -1,25 +1,37 @@
 # Phase — Project Intelligence
 
 ## Product
-Visual RSI regime EA only — no trading.
+RSI regime EA: visual + live bounce trades (v1.41).
 
 ## Regime (v1.29 freeze / ignite-once)
 - OnInit: ONE 500-bar walk (ignite) → freeze `g_regimes` + keep `g_walk`
 - New bar: `PhRegimeAdvance` only — never rebuild past colours
 - Stick until INV/S&R leave rules fire (Buy/Sell Process)
-- Resist = highest swing clearly >65 & <80 (gap 2; not on 65/80)
-- Support = lowest swing clearly <35 & >20 (gap 2; not on 20/35)
+- Resist = highest swing >=70 & <80 (never below 70; not on 80)
+- Support = lowest swing <=25 & >20 (never above 25; not on 20)
 - S&R line: regime enter → regime END
 - No INV → leave stay >65 (sell) / <35 (buy)
+
+## Trade (v1.41)
+- BUY regime: bounce up from 35–40 or 50 → buy (arm on zone, fire on RSI close > prev)
+- SELL regime: bounce down from 60–65 or 50 → sell
+- Every bounce = new entry; lot 0.01; SL min 800 pips; **no fixed TP** (Div / regime exits)
+- Regime change → CloseAll; red regular Div → close buys; green regular Div → close sells
+- Live new-bar only (no ignite fills); HD does not exit
+- Support HD entry: BUY regime + hidden bull → buy; SELL regime + hidden bear → sell (`PH_HD`)
+- SL hit (any Phase deal) → CloseAll + **sequence lock** until helping HD (same regime)
+- Regime change → CloseAll + **unlock** (nayi regime fresh sequence)
+- Module: `Include/Phase_Trade.mqh`; magic `InpTradeMagic`
 
 ## Divergence / BOS / HD (v1.39 from Future2EA)
 - Regular Div: nearest RSI tops/bottoms; 1st >60/<45; 2nd dead-zone bahar; path clean; nearest draw
 - HD: nearest-in-time RSI extrema; 35–65; min ΔRSI; no BOS
 - Phase_RSI: levels 20/35/40/50/60/65/80 all white solid
+- Live flags: `newRegularBear` / `newRegularBull` on `SPhDivState`
 
 ## Drawing
 - Prefix `PH_`
-- Modules: Buy/Sell/Regime/SR/Draw/Dash/Div* + Types
+- Modules: Buy/Sell/Regime/SR/Draw/Dash/Div*/Trade + Types
 - Dash: top-right M1..H1 regime pills (green/red) — Phase own, not F2E
 
 ## Companion

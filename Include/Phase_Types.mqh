@@ -21,8 +21,8 @@ struct SPhConfig
    double invGap;       // min distance from 20/35/65/80 (never on edge)
    double rsiFloor;     // S&R clearly ABOVE (20)
    double rsiCeil;      // S&R clearly BELOW (80)
-   double invNearSup;   // support never closer to 35 than this (27)
-   double invNearRes;   // resist never closer to 65 than this (68)
+   double invNearSup;   // support never above this (25; below-35 zone)
+   double invNearRes;   // resist never below this (70; above-65 zone)
    int    confirmBars;
    int    holdBars;
    int    capFailCount;

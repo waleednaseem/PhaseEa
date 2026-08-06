@@ -41,6 +41,11 @@ struct SPhDivState
    bool      showHidden;
    int       rsiHandle;
    int       rsiWindow;
+   bool      liveTradeFlags;   // true only during live bar (not history scan)
+   bool      newRegularBear;   // red regular div confirmed this live bar
+   bool      newRegularBull;   // green regular div confirmed this live bar
+   bool      newHiddenBear;    // HD bear (sell-regime support)
+   bool      newHiddenBull;    // HD bull (buy-regime support)
   };
 
 void PhDiv_CfgDefault(SPhDivCfg &c)
@@ -72,9 +77,22 @@ void PhDiv_StateInit(SPhDivState &st)
   {
    ArrayResize(st.highPivots,0);
    ArrayResize(st.lowPivots,0);
-   st.showHidden = true;
-   st.rsiHandle  = INVALID_HANDLE;
-   st.rsiWindow  = -1;
+   st.showHidden     = true;
+   st.rsiHandle      = INVALID_HANDLE;
+   st.rsiWindow      = -1;
+   st.liveTradeFlags = false;
+   st.newRegularBear = false;
+   st.newRegularBull = false;
+   st.newHiddenBear  = false;
+   st.newHiddenBull  = false;
+  }
+
+void PhDiv_ClearTradeFlags(SPhDivState &st)
+  {
+   st.newRegularBear = false;
+   st.newRegularBull = false;
+   st.newHiddenBear  = false;
+   st.newHiddenBull  = false;
   }
 
 void PhDiv_OnNewPivotHigh(SPhDivState &st,const SPhDivCfg &cfg,const SPh_Pivot &pivot)
@@ -103,6 +121,8 @@ void PhDiv_OnNewPivotHigh(SPhDivState &st,const SPhDivCfg &cfg,const SPh_Pivot &
                                 cfg.bearClr,cfg.bullClr,
                                 cfg.hidBearClr,cfg.hidBullClr,
                                 cfg.lineWidth,cfg.showLines);
+         if(st.liveTradeFlags)
+            st.newRegularBear = true;
          break;
         }
       if(primary >= 0 && cfg.showBos)
@@ -121,14 +141,19 @@ void PhDiv_OnNewPivotHigh(SPhDivState &st,const SPhDivCfg &cfg,const SPh_Pivot &
                                             cfg.minHdBars,cfg.maxHdBars,
                                             cfg.deadLow,cfg.deadHigh,st.rsiHandle,
                                             cfg.pivotLeft,cfg.pivotRight,hid);
-   if(nh > 0 && st.showHidden)
+   if(nh > 0)
      {
-      Ph_DrawDivergenceLines(0,st.rsiWindow,hid[0],
-                             cfg.bearClr,cfg.bullClr,
-                             cfg.hidBearClr,cfg.hidBullClr,
-                             cfg.lineWidth,cfg.showLines);
-      Ph_DrawHiddenDivBoxes(0,st.rsiWindow,_Symbol,_Period,hid[0],
-                            cfg.hidBearBox,cfg.hidBullBox,cfg.showBoxes);
+      if(st.liveTradeFlags)
+         st.newHiddenBear = true;
+      if(st.showHidden)
+        {
+         Ph_DrawDivergenceLines(0,st.rsiWindow,hid[0],
+                                cfg.bearClr,cfg.bullClr,
+                                cfg.hidBearClr,cfg.hidBullClr,
+                                cfg.lineWidth,cfg.showLines);
+         Ph_DrawHiddenDivBoxes(0,st.rsiWindow,_Symbol,_Period,hid[0],
+                               cfg.hidBearBox,cfg.hidBullBox,cfg.showBoxes);
+        }
      }
   }
 
@@ -157,6 +182,8 @@ void PhDiv_OnNewPivotLow(SPhDivState &st,const SPhDivCfg &cfg,const SPh_Pivot &p
                                 cfg.bearClr,cfg.bullClr,
                                 cfg.hidBearClr,cfg.hidBullClr,
                                 cfg.lineWidth,cfg.showLines);
+         if(st.liveTradeFlags)
+            st.newRegularBull = true;
          break;
         }
       if(primary >= 0 && cfg.showBos)
@@ -174,14 +201,19 @@ void PhDiv_OnNewPivotLow(SPhDivState &st,const SPhDivCfg &cfg,const SPh_Pivot &p
                                             cfg.minHdBars,cfg.maxHdBars,
                                             cfg.deadLow,cfg.deadHigh,st.rsiHandle,
                                             cfg.pivotLeft,cfg.pivotRight,hid);
-   if(nh > 0 && st.showHidden)
+   if(nh > 0)
      {
-      Ph_DrawDivergenceLines(0,st.rsiWindow,hid[0],
-                             cfg.bearClr,cfg.bullClr,
-                             cfg.hidBearClr,cfg.hidBullClr,
-                             cfg.lineWidth,cfg.showLines);
-      Ph_DrawHiddenDivBoxes(0,st.rsiWindow,_Symbol,_Period,hid[0],
-                            cfg.hidBearBox,cfg.hidBullBox,cfg.showBoxes);
+      if(st.liveTradeFlags)
+         st.newHiddenBull = true;
+      if(st.showHidden)
+        {
+         Ph_DrawDivergenceLines(0,st.rsiWindow,hid[0],
+                                cfg.bearClr,cfg.bullClr,
+                                cfg.hidBearClr,cfg.hidBullClr,
+                                cfg.lineWidth,cfg.showLines);
+         Ph_DrawHiddenDivBoxes(0,st.rsiWindow,_Symbol,_Period,hid[0],
+                               cfg.hidBearBox,cfg.hidBullBox,cfg.showBoxes);
+        }
      }
   }
 
@@ -231,6 +263,8 @@ void PhDiv_ScanHistory(SPhDivState &st,const SPhDivCfg &cfg)
    Ph_ClearDivVisuals(0);
    ArrayResize(st.highPivots,0);
    ArrayResize(st.lowPivots,0);
+   st.liveTradeFlags = false;
+   PhDiv_ClearTradeFlags(st);
 
    int bars = Bars(_Symbol,_Period);
    int need = MathMin(cfg.lookback + cfg.pivotLeft + 5,bars);
@@ -257,19 +291,22 @@ void PhDiv_ProcessLiveBar(SPhDivState &st,const SPhDivCfg &cfg)
   {
    if(st.rsiHandle == INVALID_HANDLE)
       return;
+   PhDiv_ClearTradeFlags(st);
+   st.liveTradeFlags = true;
    int shift = cfg.pivotRight + 1;
    int need = shift + cfg.pivotLeft + 2;
    double highs[],lows[],rsiValues[];
    datetime times[];
-   if(CopyHigh(_Symbol,_Period,0,need,highs) < need) return;
-   if(CopyLow(_Symbol,_Period,0,need,lows) < need) return;
-   if(CopyTime(_Symbol,_Period,0,need,times) < need) return;
-   if(CopyBuffer(st.rsiHandle,0,0,need,rsiValues) < need) return;
+   if(CopyHigh(_Symbol,_Period,0,need,highs) < need) { st.liveTradeFlags = false; return; }
+   if(CopyLow(_Symbol,_Period,0,need,lows) < need) { st.liveTradeFlags = false; return; }
+   if(CopyTime(_Symbol,_Period,0,need,times) < need) { st.liveTradeFlags = false; return; }
+   if(CopyBuffer(st.rsiHandle,0,0,need,rsiValues) < need) { st.liveTradeFlags = false; return; }
    ArraySetAsSeries(highs,true);
    ArraySetAsSeries(lows,true);
    ArraySetAsSeries(times,true);
    ArraySetAsSeries(rsiValues,true);
    PhDiv_ProcessBarFromArrays(st,cfg,shift,highs,lows,rsiValues,times);
+   st.liveTradeFlags = false;
   }
 
 void PhDiv_RefreshHiddenVisuals(SPhDivState &st,const SPhDivCfg &cfg)

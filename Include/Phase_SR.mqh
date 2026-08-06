@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                                 Phase_SR.mqh     |
-//| INV — support <=27 (>20), resist >=68 (<80); prefer near 27/68   |
+//| INV — support <=25 (>20), resist >=70 (<80); prefer near 25/70   |
 //+------------------------------------------------------------------+
 #ifndef PHASE_SR_MQH
 #define PHASE_SR_MQH
@@ -51,14 +51,14 @@ double PhInv_Gap(const SPhConfig &cfg)
 bool PhInv_OkSupport(const double lvl,const SPhConfig &cfg)
   {
    const double g = PhInv_Gap(cfg);
-   // >20+g and never closer to 35 than invNearSup (27)
+   // >20+g and never above invNearSup (25)
    return(lvl > cfg.rsiFloor + g && lvl <= cfg.invNearSup + 1.0e-9);
   }
 
 bool PhInv_OkResist(const double lvl,const SPhConfig &cfg)
   {
    const double g = PhInv_Gap(cfg);
-   // <80-g and never closer to 65 than invNearRes (68)
+   // <80-g and never below invNearRes (70)
    return(lvl >= cfg.invNearRes - 1.0e-9 && lvl < cfg.rsiCeil - g);
   }
 
@@ -69,7 +69,7 @@ double PhInv_ClampSupport(const double raw,const SPhConfig &cfg)
    if(lvl < cfg.rsiFloor + g)
       lvl = cfg.rsiFloor + g;
    if(lvl > cfg.invNearSup)
-      lvl = cfg.invNearSup;   // pull away from 35 → 27
+      lvl = cfg.invNearSup;   // never above 25
    return(lvl);
   }
 
@@ -78,7 +78,7 @@ double PhInv_ClampResist(const double raw,const SPhConfig &cfg)
    const double g = PhInv_Gap(cfg);
    double lvl = raw;
    if(lvl < cfg.invNearRes)
-      lvl = cfg.invNearRes;   // pull away from 65 → 68
+      lvl = cfg.invNearRes;   // never below 70
    if(lvl > cfg.rsiCeil - g)
       lvl = cfg.rsiCeil - g;
    return(lvl);
@@ -86,14 +86,16 @@ double PhInv_ClampResist(const double raw,const SPhConfig &cfg)
 
 bool PhInv_ResistPeakRaw(const double raw,const SPhConfig &cfg)
   {
-   // discover peaks clearly above 65; clamp later to >=68
-   return(raw > cfg.bearCap + PhInv_Gap(cfg));
+   // above-65 zone: only peaks that can sit at/above 70
+   const double g = PhInv_Gap(cfg);
+   return(raw >= cfg.invNearRes - 1.0e-9 && raw < cfg.rsiCeil - g);
   }
 
 bool PhInv_SupportTroughRaw(const double raw,const SPhConfig &cfg)
   {
-   // discover troughs clearly below 35; clamp later to <=27
-   return(raw < cfg.bullHard - PhInv_Gap(cfg));
+   // below-35 zone: only troughs that can sit at/below 25
+   const double g = PhInv_Gap(cfg);
+   return(raw <= cfg.invNearSup + 1.0e-9 && raw > cfg.rsiFloor + g);
   }
 
 bool PhResistPivot(const double &rsi[],const int s,const int hist,const int str)
@@ -244,7 +246,7 @@ void PhInv_CaptureDuring(SPhWalk &w,SPhSRList &L,const double &rsi[],const datet
      }
   }
 
-// After S&R: last N bars — prefer U-turn closest to 27 (sup) / 68 (res)
+// After S&R: last N bars — prefer U-turn closest to 25 (sup) / 70 (res)
 void PhInv_Refresh(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &times[],
                    const int shift,const int hist,const SPhConfig &cfg)
   {
@@ -274,7 +276,7 @@ void PhInv_Refresh(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &t
          if(!PhResistPivot(rsi,s,hist,str))
             continue;
          const double clamped = PhInv_ClampResist(raw,cfg);
-         const double dist = MathAbs(clamped - cfg.invNearRes); // prefer near 68
+         const double dist = MathAbs(clamped - cfg.invNearRes); // prefer near 70
          if(!found || dist < bestDist - 1.0e-9)
            {
             found    = true;
@@ -290,7 +292,7 @@ void PhInv_Refresh(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &t
          if(!PhSupportPivot(rsi,s,hist,str))
             continue;
          const double clamped = PhInv_ClampSupport(raw,cfg);
-         const double dist = MathAbs(clamped - cfg.invNearSup); // prefer near 27
+         const double dist = MathAbs(clamped - cfg.invNearSup); // prefer near 25
          if(!found || dist < bestDist - 1.0e-9)
            {
             found    = true;
@@ -318,7 +320,7 @@ void PhInv_Refresh(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &t
          return;
      }
 
-   // only convert if new is closer to 27/68 than current
+   // only convert if new is closer to 25/70 than current
    const double curDist = (w.state == PH_BEARISH)
                           ? MathAbs(w.invLevel - cfg.invNearRes)
                           : MathAbs(w.invLevel - cfg.invNearSup);
