@@ -1,7 +1,7 @@
 # Phase — Project Intelligence
 
 ## Product
-RSI regime EA: visual + live bounce trades (v1.41).
+RSI regime EA: visual + live bounce trades (v1.45).
 
 ## Regime (v1.29 freeze / ignite-once)
 - OnInit: ONE 500-bar walk (ignite) → freeze `g_regimes` + keep `g_walk`
@@ -12,16 +12,26 @@ RSI regime EA: visual + live bounce trades (v1.41).
 - S&R line: regime enter → regime END
 - No INV → leave stay >65 (sell) / <35 (buy)
 
-## Trade (v1.41)
-- BUY regime: bounce up from 35–40 or 50 → buy (arm on zone, fire on RSI close > prev)
-- SELL regime: bounce down from 60–65 or 50 → sell
-- Every bounce = new entry; lot 0.01; SL min 800 pips; **no fixed TP** (Div / regime exits)
-- Regime change → CloseAll; red regular Div → close buys; green regular Div → close sells
-- Live new-bar only (no ignite fills); HD does not exit
-- Support HD entry: BUY regime + hidden bull → buy; SELL regime + hidden bear → sell (`PH_HD`)
-- SL hit (any Phase deal) → CloseAll + **sequence lock** until helping HD (same regime)
-- Regime change → CloseAll + **unlock** (nayi regime fresh sequence)
-- Module: `Include/Phase_Trade.mqh`; magic `InpTradeMagic`
+## Trade (v1.45)
+- BUY regime: bounce 35–40 / 50; **also** 60–65 pullback then bounce up (≥60) → buy
+- SELL regime: bounce 60–65 / 50; **also** 35–40 bounce down → sell
+- Extra RSI S&R: last 100 bars RSI swing H/L — support **<35** / resist **>65** only; scan even if RSI window missing (draw optional); arm on touch → fire on bounce/reject (`Phase_PriceSR.mqh`)
+- Every bounce = new entry; lot 0.01; **SL = 2nd FVG only if ≥800 pips** (else min 800); **no fixed TP**
+- Regime change → CloseAll + unlock; red Div → close buys; green → close sells
+- Live new-bar only; HD does not exit
+- Support HD entry: BUY+hidden bull / SELL+hidden bear (`PH_HD`)
+- Brown FVG soft reject: BUY=upper from-below reject-down / SELL=lower from-above reject-up → **Unlock + 1× `PH_FVG`** (not CloseAll; skip grey/full-through)
+- SL hit → CloseAll + **seq LOCK**
+- Unlock: helping HD **or** helping regular Div **or** supporting brown FVG reject
+- Modules: `Phase_Trade.mqh`, `Phase_FVG.mqh`; magic `InpTradeMagic`
+
+## FVG / iFVG (v1.45 — cache + SL + chart + reject)
+- Detect: C1/C2/C3 wick gap; bull C2 up — `h1<l3` else pierce `h1<l2`; bear mirror `l1>h3` / `l1>h2`; min gap pts default 30
+- Brown=open FVG; Grey=iFVG = opposite **through** ≥1; through≥2=gone; close-inside=stays brown
+- Chart: `PH_FvgB_/PH_FvgR_`; width **1000** clamp **30–1000**; lookback **800**; maxShow **12**; `InpShowFvg`
+- Perf: FVG list cached (rebuild once / incremental new-bar); no full wipe+ObjectsTotal each bar; PriceSR redraw only on level change; Loss history throttle 5s
+- Dyn SL: 2nd/3rd side-FVG only if dist ≥ max(800,slPips) via PhTrade_PipSize; else min-pips fallback
+- Soft reject trade runs even if `InpShowFvg` false (draw optional)
 
 ## Divergence / BOS / HD (v1.39 from Future2EA)
 - Regular Div: nearest RSI tops/bottoms; 1st >60/<45; 2nd dead-zone bahar; path clean; nearest draw
@@ -31,7 +41,7 @@ RSI regime EA: visual + live bounce trades (v1.41).
 
 ## Drawing
 - Prefix `PH_`
-- Modules: Buy/Sell/Regime/SR/Draw/Dash/Div*/Trade + Types
+- Modules: Buy/Sell/Regime/SR/PriceSR/FVG/Draw/Dash/Div*/Trade + Types
 - Dash: top-right M1..H1 regime pills (green/red) — Phase own, not F2E
 
 ## Companion

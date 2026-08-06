@@ -2,7 +2,7 @@
 //|                                                       Phase.mq5  |
 //+------------------------------------------------------------------+
 #property copyright "Phase"
-#property version   "1.42"
+#property version   "1.45"
 
 #include "Include/Phase_Types.mqh"
 #include "Include/Phase_Regime.mqh"
@@ -10,6 +10,7 @@
 #include "Include/Phase_Dash.mqh"
 #include "Include/Phase_DivEngine.mqh"
 #include "Include/Phase_Trade.mqh"
+#include "Include/Phase_PriceSR.mqh"
 
 input group "=== RSI / CB Zones ==="
 input int                InpRsiPeriod      = 14;
@@ -70,9 +71,24 @@ input color              InpResistClr      = clrOrangeRed;
 input group "=== Trade ==="
 input bool               InpEnableTrade     = true;
 input double             InpLot             = 0.01;
-input int                InpSL_Pips         = 800;   // minimum SL (pips); no fixed TP — Div exits
+input int                InpSL_Pips         = 800;   // min SL fallback (pips); prefer 2nd FVG
 input long               InpTradeMagic      = 140001;
 input int                InpTradeDeviation  = 30;
+input bool               InpShowPriceSR     = true;  // last-100 price S&R lines
+input int                InpPriceSRBars     = 100;
+
+input group "=== FVG ==="
+input bool               InpShowFvg             = true;
+input int                InpFvgLookbackBars     = 800;
+input int                InpFvgMinGapPoints     = 30;
+input int                InpFvgMaxShow          = 12;
+input int                InpFvgMinWidthBars     = 30;
+input int                InpFvgMaxWidthBars     = 1000;
+input int                InpFvgWidthBars        = 1000;
+input color              InpColorFvgFill        = C'222,184,135'; // brown open
+input color              InpColorFvgBorder      = C'101,67,33';
+input color              InpColorFvgFillFilled  = C'105,105,105'; // grey iFVG
+input color              InpColorFvgBorderFilled = C'64,64,64';
 
 input group "=== Dashboard / Loss ==="
 input bool               InpShowLossMonitor = true;
@@ -92,6 +108,7 @@ SPhDivCfg      g_divCfg;
 SPhDivState    g_div;
 SPhTradeCfg    g_tradeCfg;
 SPhTradeState  g_trade;
+SPhPriceSR     g_priceSR;
 bool           g_ignited    = false;
 int            g_rsiHandle  = INVALID_HANDLE;
 int            g_rsiWindow  = -1;
@@ -144,6 +161,8 @@ void LoadConfig()
    g_tradeCfg.magic     = InpTradeMagic;
    g_tradeCfg.zoneTol   = InpRsiTol;
    g_tradeCfg.deviation = InpTradeDeviation;
+   g_tradeCfg.fvgLookback  = InpFvgLookbackBars;
+   g_tradeCfg.fvgMinGapPts = InpFvgMinGapPoints;
   }
 
 void AttachPhaseRsi()
@@ -194,30 +213,41 @@ void ApplyTradeExitsAndEntries()
          Print("Phase Trade: regime change CloseAll n=",n,
                " ",EnumToString(g_lastRegime)," -> ",EnumToString(cur));
       PhTrade_ResetArms(g_trade);
-      // nayi regime = fresh sequence (purani SL-lock clear)
+      PhTrade_ClearFvgArm(g_trade);
+      PhPriceSR_ClearArm(g_priceSR);
       if(PhTrade_IsLocked(g_trade))
          PhTrade_UnlockSeq(g_trade);
      }
    PhTrade_CheckBounce(g_trade,g_tradeCfg,cur,g_rsi);
+   PhPriceSR_Scan(g_priceSR,g_rsi,g_times,g_rsiWindow,InpPriceSRBars,2,InpShowPriceSR);
+   PhPriceSR_CheckTrade(g_priceSR,g_trade,g_tradeCfg,cur,g_rsi);
+   PhTrade_CheckFvgReject(g_trade,g_tradeCfg,cur);
   }
 
+// Supporting regular Div unlocks seq; also side CloseAll
 void ApplyDivTradeExits()
   {
+   const ENUM_PH_REGIME cur = (ArraySize(g_regimes) > 1 ? g_regimes[1] : PH_NEUTRAL);
+
    if(g_div.newRegularBear)
      {
+      if(cur == PH_BEARISH)
+         PhTrade_UnlockSeq(g_trade);
       int n = PhTrade_CloseByType(g_trade,g_tradeCfg,POSITION_TYPE_BUY);
       if(n > 0)
          Print("Phase Trade: red Div CloseBuys n=",n);
      }
    if(g_div.newRegularBull)
      {
+      if(cur == PH_BULLISH)
+         PhTrade_UnlockSeq(g_trade);
       int n = PhTrade_CloseByType(g_trade,g_tradeCfg,POSITION_TYPE_SELL);
       if(n > 0)
          Print("Phase Trade: green Div CloseSells n=",n);
      }
   }
 
-// Regime-aligned Hidden Div (support HD) → unlock if needed + immediate entry
+// Supporting HD → unlock + entry
 void ApplyHdTradeEntries()
   {
    if(!InpEnableTrade)
@@ -237,6 +267,15 @@ void ApplyHdTradeEntries()
      }
   }
 
+void PaintFvg()
+  {
+   PhFvg_Refresh(0,_Symbol,_Period,InpFvgLookbackBars,InpShowFvg,
+                 InpFvgWidthBars,InpFvgMinWidthBars,InpFvgMaxWidthBars,
+                 InpFvgMinGapPoints,InpFvgMaxShow,
+                 InpColorFvgFill,InpColorFvgBorder,
+                 InpColorFvgFillFilled,InpColorFvgBorderFilled);
+  }
+
 void PaintAll(const int hist)
   {
    g_lastRegime = g_regimes[1];
@@ -251,6 +290,7 @@ void PaintAll(const int hist)
    if(InpShowRsiSR)
       PhPaintRsiSR(g_srList,g_rsiWindow,InpSupportClr,InpResistClr);
 
+   PaintFvg();
    PaintDash(false);
    ChartRedraw(0);
   }
@@ -337,6 +377,7 @@ int OnInit()
    PhDash_Init(g_dash);
    PhDiv_StateInit(g_div);
    PhTrade_Init(g_trade,g_tradeCfg);
+   PhPriceSR_Init(g_priceSR);
    g_ignited = false;
 
    g_rsiHandle = iRSI(_Symbol,_Period,InpRsiPeriod,InpAppliedPrice);
@@ -370,6 +411,9 @@ void OnDeinit(const int reason)
   {
    EventKillTimer();
    PhDeleteAll();
+   PhFvg_DeleteObjects();
+   PhFvg_CacheClear();
+   PhPriceSR_DeleteObjects();
    PhDash_Release(g_dash);
    g_ignited = false;
    if(g_rsiHandle != INVALID_HANDLE)

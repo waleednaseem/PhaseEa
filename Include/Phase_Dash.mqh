@@ -358,43 +358,61 @@ void PhDash_PaintLoss(const bool show,const long magic,const bool resetPeaks,
       maxFloat = curFloat;
    GlobalVariableSet(baskKey,maxFloat);
 
+   // Heavy HistorySelect throttled (OnTimer is 1s) — float peaks stay live
+   static datetime s_lastHist = 0;
+   static double   s_maxLossTrade = 0.0;
+   static int      s_lossTrades = 0;
+   static int      s_profitTrades = 0;
+   static double   s_cachedDd = 0.0;
+   const bool doHist = (resetPeaks || s_lastHist == 0 ||
+                        (TimeCurrent() - s_lastHist) >= 5);
+
    double cumClosed = 0.0;
-   double ddNow = PhDash_LossMaxDd(magic,curFloat,cumClosed);
-   if(ddNow < maxDd)
-      maxDd = ddNow;
+   if(doHist)
+     {
+      double ddNow = PhDash_LossMaxDd(magic,curFloat,cumClosed);
+      s_cachedDd = ddNow;
+      s_maxLossTrade = 0.0;
+      s_lossTrades = 0;
+      s_profitTrades = 0;
+      if(HistorySelect(0,TimeCurrent()))
+        {
+         int deals = HistoryDealsTotal();
+         for(int i = 0; i < deals; i++)
+           {
+            ulong ticket = HistoryDealGetTicket(i);
+            if(ticket == 0)
+               continue;
+            long entry = HistoryDealGetInteger(ticket,DEAL_ENTRY);
+            if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY && entry != DEAL_ENTRY_INOUT)
+               continue;
+            if(magic != 0 && HistoryDealGetInteger(ticket,DEAL_MAGIC) != magic)
+               continue;
+            if(HistoryDealGetString(ticket,DEAL_SYMBOL) != _Symbol)
+               continue;
+            double pnl = HistoryDealGetDouble(ticket,DEAL_PROFIT)
+                         + HistoryDealGetDouble(ticket,DEAL_SWAP)
+                         + HistoryDealGetDouble(ticket,DEAL_COMMISSION);
+            if(pnl < 0.0)
+              {
+               s_lossTrades++;
+               if(pnl < s_maxLossTrade)
+                  s_maxLossTrade = pnl;
+              }
+            else if(pnl > 0.0)
+               s_profitTrades++;
+           }
+        }
+      s_lastHist = TimeCurrent();
+     }
+
+   if(s_cachedDd < maxDd)
+      maxDd = s_cachedDd;
    GlobalVariableSet(ddKey,maxDd);
 
-   double maxLossTrade = 0.0;
-   int lossTrades = 0;
-   int profitTrades = 0;
-   if(HistorySelect(0,TimeCurrent()))
-     {
-      int deals = HistoryDealsTotal();
-      for(int i = 0; i < deals; i++)
-        {
-         ulong ticket = HistoryDealGetTicket(i);
-         if(ticket == 0)
-            continue;
-         long entry = HistoryDealGetInteger(ticket,DEAL_ENTRY);
-         if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY && entry != DEAL_ENTRY_INOUT)
-            continue;
-         if(magic != 0 && HistoryDealGetInteger(ticket,DEAL_MAGIC) != magic)
-            continue;
-         if(HistoryDealGetString(ticket,DEAL_SYMBOL) != _Symbol)
-            continue;
-         double pnl = HistoryDealGetDouble(ticket,DEAL_PROFIT)
-                      + HistoryDealGetDouble(ticket,DEAL_SWAP)
-                      + HistoryDealGetDouble(ticket,DEAL_COMMISSION);
-         if(pnl < 0.0)
-           {
-            lossTrades++;
-            if(pnl < maxLossTrade)
-               maxLossTrade = pnl;
-           }
-         else if(pnl > 0.0)
-            profitTrades++;
-        }
-     }
+   double maxLossTrade = s_maxLossTrade;
+   int lossTrades = s_lossTrades;
+   int profitTrades = s_profitTrades;
 
    const int xL = PhDash_XL();
    const int rows = 6;

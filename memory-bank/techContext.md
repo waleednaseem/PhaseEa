@@ -8,15 +8,16 @@
 ## Defaults
 | Input | Default |
 |-------|---------|
-| InpRsiPeriod | 10 |
-| InpLookback | 60 |
+| InpRsiPeriod | 14 |
 | InpHistoryBars | 500 |
-| InpMinScorePct | 70 |
+| InpSL_Pips | 800 (FVG 2nd preferred) |
+| InpPriceSRBars | 100 |
 | Colors | dark green / dark red |
 
 ## Paths
 - EA: `MQL5/Experts/Phase/Phase.mq5`
 - Indicator: `MQL5/Indicators/Phase_RSI.mq5`
+- FVG SL: `Include/Phase_FVG.mqh` (Future2EA port, no draw)
 
 ## Compile
 MetaEditor compile both `Phase.mq5` and `Phase_RSI.mq5`. Indicator must exist before EA attach works.
