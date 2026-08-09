@@ -31,7 +31,10 @@ struct SPhTradeState
    bool     armedSellLo;   // bear: 35-40 bounce-down
    bool     sawAbove65;    // bull: RSI was above 65 before pullback
    bool     sawBelow35;    // bear: RSI was below 35 before rally
-   bool     seqLocked;     // after SL: no entries until helping HD/Div/FVG
+   bool     seqLocked;     // after SL / against Div+BOS: no entries until unlock
+   bool     againstDivLock; // lock came from against regular Div + BOS (realign window)
+   int      againstLockBars;// bars since against lock (1..5 realign window)
+   bool     realignArmed;   // touched regime bounce zone while against-locked
    datetime histFrom;
    // Brown FVG soft reject: arm on touch → fire on reject close
    bool     fvgPending;
@@ -41,6 +44,84 @@ struct SPhTradeState
    datetime fvgLastDetect;
    SPhFvg   fvgZone;
   };
+
+#define PH_REALIGN_MAX_BARS 5
+#define PH_SEQ_MARK_TAG     "PH_Seq"
+
+int    g_phTradeMarkRsiWin = -1;
+double g_phTradeMarkRsi    = 0.0;
+
+void PhTrade_SetMarkContext(const int rsiWindow,const double rsi1)
+  {
+   g_phTradeMarkRsiWin = rsiWindow;
+   g_phTradeMarkRsi    = rsi1;
+  }
+
+void PhTrade_PaintSeqRect(const string name,const int subwindow,
+                          const datetime t1,const double top,
+                          const datetime t2,const double bottom,
+                          const color clr)
+  {
+   if(ObjectFind(0,name) < 0)
+      ObjectCreate(0,name,OBJ_RECTANGLE,subwindow,t1,top,t2,bottom);
+   else
+     {
+      ObjectMove(0,name,0,t1,top);
+      ObjectMove(0,name,1,t2,bottom);
+     }
+   ObjectSetInteger(0,name,OBJPROP_COLOR,clr);
+   ObjectSetInteger(0,name,OBJPROP_STYLE,STYLE_SOLID);
+   ObjectSetInteger(0,name,OBJPROP_WIDTH,2);
+   ObjectSetInteger(0,name,OBJPROP_FILL,true);
+   ObjectSetInteger(0,name,OBJPROP_BACK,true);
+   ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+   ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+  }
+
+// Yellow box on price + RSI at closed bar (shift=1) for LOCK / UNLOCK
+void PhTrade_PaintSeqMark(const bool isLock)
+  {
+   const int shift = 1;
+   datetime t = iTime(_Symbol,_Period,shift);
+   if(t <= 0)
+      return;
+   int sec = PeriodSeconds(_Period);
+   if(sec <= 0)
+      sec = 60;
+   datetime t1 = t - sec / 3;
+   datetime t2 = t + sec / 3;
+   double hi = iHigh(_Symbol,_Period,shift);
+   double lo = iLow(_Symbol,_Period,shift);
+   if(hi <= 0.0 || lo <= 0.0)
+      return;
+
+   const color clr = clrYellow;
+   const string tag = isLock ? "Lk" : "Uk";
+   const string priceName = PH_SEQ_MARK_TAG + tag + "P_" + IntegerToString((long)t);
+   const string rsiName   = PH_SEQ_MARK_TAG + tag + "R_" + IntegerToString((long)t);
+   const string lblName   = PH_SEQ_MARK_TAG + tag + "T_" + IntegerToString((long)t);
+
+   PhTrade_PaintSeqRect(priceName,0,t1,hi,t2,lo,clr);
+
+   if(ObjectFind(0,lblName) < 0)
+      ObjectCreate(0,lblName,OBJ_TEXT,0,t,hi);
+   else
+      ObjectMove(0,lblName,0,t,hi);
+   ObjectSetString(0,lblName,OBJPROP_TEXT,isLock ? "LOCK" : "UNLOCK");
+   ObjectSetInteger(0,lblName,OBJPROP_COLOR,clr);
+   ObjectSetInteger(0,lblName,OBJPROP_FONTSIZE,8);
+   ObjectSetString(0,lblName,OBJPROP_FONT,"Arial");
+   ObjectSetInteger(0,lblName,OBJPROP_ANCHOR,ANCHOR_LEFT_LOWER);
+   ObjectSetInteger(0,lblName,OBJPROP_SELECTABLE,false);
+   ObjectSetInteger(0,lblName,OBJPROP_HIDDEN,true);
+
+   if(g_phTradeMarkRsiWin >= 0 && g_phTradeMarkRsi > 0.0 && g_phTradeMarkRsi <= 100.0)
+     {
+      const double pad = 2.0;
+      PhTrade_PaintSeqRect(rsiName,g_phTradeMarkRsiWin,t1,
+                           g_phTradeMarkRsi + pad,t2,g_phTradeMarkRsi - pad,clr);
+     }
+  }
 
 void PhTrade_CfgDefault(SPhTradeCfg &c)
   {
@@ -65,6 +146,9 @@ void PhTrade_Init(SPhTradeState &st,const SPhTradeCfg &cfg)
    st.sawAbove65  = false;
    st.sawBelow35  = false;
    st.seqLocked   = false;
+   st.againstDivLock = false;
+   st.againstLockBars = 0;
+   st.realignArmed = false;
    st.histFrom    = TimeCurrent();
    st.fvgPending       = false;
    st.fvgArmFromBelow  = false;
@@ -84,17 +168,43 @@ void PhTrade_ResetArms(SPhTradeState &st)
    st.sawBelow35  = false;
   }
 
+void PhTrade_ClearAgainstLock(SPhTradeState &st)
+  {
+   st.againstDivLock  = false;
+   st.againstLockBars = 0;
+   st.realignArmed    = false;
+  }
+
 void PhTrade_LockSeq(SPhTradeState &st)
   {
    st.seqLocked = true;
+   PhTrade_ClearAgainstLock(st);
    PhTrade_ResetArms(st);
+   PhTrade_PaintSeqMark(true);
+  }
+
+// Against Div + BOS → CloseAll path (enables 4–5 bar regime-realign unlock)
+void PhTrade_LockAgainstDiv(SPhTradeState &st)
+  {
+   st.seqLocked       = true;
+   st.againstDivLock  = true;
+   st.againstLockBars = 0;
+   st.realignArmed    = false;
+   PhTrade_ResetArms(st);
+   PhTrade_PaintSeqMark(true);
   }
 
 void PhTrade_UnlockSeq(SPhTradeState &st)
   {
-   if(st.seqLocked)
-      Print("Phase Trade: sequence UNLOCKED (helping HD/Div/FVG)");
+   if(!st.seqLocked)
+     {
+      PhTrade_ClearAgainstLock(st);
+      return;
+     }
+   Print("Phase Trade: sequence UNLOCKED (helping HD/Div/FVG/realign)");
    st.seqLocked = false;
+   PhTrade_ClearAgainstLock(st);
+   PhTrade_PaintSeqMark(false);
   }
 
 void PhTrade_ClearFvgArm(SPhTradeState &st)
@@ -323,6 +433,57 @@ bool PhTrade_InZone3540(const double rsi)
    return(rsi >= 35.0 && rsi <= 40.0);
   }
 
+// After against Div+BOS lock: within 5 bars, regime-align bounce → unlock
+// SELL: 60–65 bounce down | BUY: 35–40 bounce up
+void PhTrade_CheckRealignUnlock(SPhTradeState &st,const ENUM_PH_REGIME regime,
+                                const double &rsi[])
+  {
+   if(!st.seqLocked || !st.againstDivLock)
+      return;
+   if(regime != PH_BULLISH && regime != PH_BEARISH)
+     {
+      PhTrade_ClearAgainstLock(st);
+      return;
+     }
+   if(ArraySize(rsi) < 3)
+      return;
+
+   st.againstLockBars++;
+   if(st.againstLockBars > PH_REALIGN_MAX_BARS)
+     {
+      // realign window closed — stay locked for HD / support Div+BOS / FVG
+      PhTrade_ClearAgainstLock(st);
+      return;
+     }
+
+   const double r1 = rsi[1];
+   const double r2 = rsi[2];
+   const int bars = st.againstLockBars;
+
+   if(regime == PH_BEARISH)
+     {
+      if(PhTrade_InZone6065(r1))
+         st.realignArmed = true;
+      if(st.realignArmed && r1 < r2)
+        {
+         PhTrade_UnlockSeq(st);
+         Print("Phase Trade: UNLOCK realign SELL bounce 60-65 bar=",bars,
+               " rsi=",DoubleToString(r1,2));
+        }
+     }
+   else // PH_BULLISH
+     {
+      if(PhTrade_InZone3540(r1))
+         st.realignArmed = true;
+      if(st.realignArmed && r1 > r2)
+        {
+         PhTrade_UnlockSeq(st);
+         Print("Phase Trade: UNLOCK realign BUY bounce 35-40 bar=",bars,
+               " rsi=",DoubleToString(r1,2));
+        }
+     }
+  }
+
 bool PhTrade_IsOurs(const ulong ticket,const long magic)
   {
    if(!PositionSelectByTicket(ticket))
@@ -494,6 +655,68 @@ int PhTrade_CloseByType(SPhTradeState &st,const SPhTradeCfg &cfg,const ENUM_POSI
          Print("Phase Trade: CloseByType fail ticket=",ticket," err=",GetLastError());
      }
    return(closed);
+  }
+
+// Focus starts at ≥4 opens: n==4 → last 1; n>4 → last 2.
+// If ALL focused floating P/L < 0 → CloseAll, stay UNLOCKED (buy+sell same).
+bool PhTrade_PollStackLossClose(SPhTradeState &st,const SPhTradeCfg &cfg)
+  {
+   if(!cfg.enable)
+      return(false);
+
+   ulong    tickets[];
+   datetime times[];
+   double   profits[];
+   int n = 0;
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0 || !PhTrade_IsOurs(ticket,cfg.magic))
+         continue;
+      int m = n + 1;
+      ArrayResize(tickets,m);
+      ArrayResize(times,m);
+      ArrayResize(profits,m);
+      tickets[n] = ticket;
+      times[n]   = (datetime)PositionGetInteger(POSITION_TIME);
+      profits[n] = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+      n++;
+     }
+
+   if(n < 4)
+      return(false);
+
+   // newest first
+   for(int a = 0; a < n - 1; a++)
+     {
+      for(int b = a + 1; b < n; b++)
+        {
+         if(times[b] > times[a] ||
+            (times[b] == times[a] && tickets[b] > tickets[a]))
+           {
+            ulong tu = tickets[a]; tickets[a] = tickets[b]; tickets[b] = tu;
+            datetime td = times[a]; times[a] = times[b]; times[b] = td;
+            double pd = profits[a]; profits[a] = profits[b]; profits[b] = pd;
+           }
+        }
+     }
+
+   // n==4 → last 1; n>4 → last 2
+   const int focus = (n == 4) ? 1 : 2;
+   for(int k = 0; k < focus; k++)
+     {
+      if(profits[k] >= 0.0)
+         return(false);
+     }
+
+   int nClose = PhTrade_CloseAll(st,cfg);
+   // stay unlocked — never LockSeq here
+   if(PhTrade_IsLocked(st))
+      PhTrade_UnlockSeq(st);
+   Print("Phase Trade: stack loss focus=",focus," of ",n,
+         " → CloseAll n=",nClose," (stay UNLOCKED)");
+   return(true);
   }
 
 bool PhTrade_PollSlLock(SPhTradeState &st,const SPhTradeCfg &cfg)

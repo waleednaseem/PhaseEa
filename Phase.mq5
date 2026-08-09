@@ -2,7 +2,7 @@
 //|                                                       Phase.mq5  |
 //+------------------------------------------------------------------+
 #property copyright "Phase"
-#property version   "1.45"
+#property version   "1.47"
 
 #include "Include/Phase_Types.mqh"
 #include "Include/Phase_Regime.mqh"
@@ -224,46 +224,69 @@ void ApplyTradeExitsAndEntries()
    PhTrade_CheckFvgReject(g_trade,g_tradeCfg,cur);
   }
 
-// Supporting regular Div unlocks seq; also side CloseAll
+// Regime = parent.
+// Against Div+BOS → CloseAll + lock | Support Div+BOS → unlock only (same-side).
+// Opposite BOS never unlocks (SELL: bull/buy BOS; BUY: bear/sell BOS).
 void ApplyDivTradeExits()
   {
    const ENUM_PH_REGIME cur = (ArraySize(g_regimes) > 1 ? g_regimes[1] : PH_NEUTRAL);
+   if(cur != PH_BULLISH && cur != PH_BEARISH)
+      return;
 
-   if(g_div.newRegularBear)
+   const bool againstBos = (cur == PH_BULLISH) ? g_div.newBosBreakBear : g_div.newBosBreakBull;
+   const bool supportBos = (cur == PH_BULLISH) ? g_div.newBosBreakBull : g_div.newBosBreakBear;
+
+   if(againstBos)
      {
-      if(cur == PH_BEARISH)
-         PhTrade_UnlockSeq(g_trade);
-      int n = PhTrade_CloseByType(g_trade,g_tradeCfg,POSITION_TYPE_BUY);
-      if(n > 0)
-         Print("Phase Trade: red Div CloseBuys n=",n);
+      int n = PhTrade_CloseAll(g_trade,g_tradeCfg);
+      PhTrade_LockAgainstDiv(g_trade);
+      PhTrade_ClearFvgArm(g_trade);
+      PhPriceSR_ClearArm(g_priceSR);
+      Print("Phase Trade: against Div+BOS → CloseAll n=",n,
+            " LOCKED (",EnumToString(cur),") — opposite BOS never unlocks");
+      return; // same bar: against wins over support
      }
-   if(g_div.newRegularBull)
+
+   if(supportBos)
      {
-      if(cur == PH_BULLISH)
+      if(PhTrade_IsLocked(g_trade))
+        {
          PhTrade_UnlockSeq(g_trade);
-      int n = PhTrade_CloseByType(g_trade,g_tradeCfg,POSITION_TYPE_SELL);
-      if(n > 0)
-         Print("Phase Trade: green Div CloseSells n=",n);
+         Print("Phase Trade: support Div+BOS → UNLOCK (",EnumToString(cur),")");
+        }
      }
   }
 
-// Supporting HD → unlock + entry
+// Regime = parent. Unlock+open ONLY same-side HD.
+// SELL → yellow hidden bear only | BUY → sky hidden bull only.
+// Opposite HD: no unlock, no open.
 void ApplyHdTradeEntries()
   {
    if(!InpEnableTrade)
       return;
    const ENUM_PH_REGIME cur = (ArraySize(g_regimes) > 1 ? g_regimes[1] : PH_NEUTRAL);
-   if(cur == PH_BULLISH && g_div.newHiddenBull)
+
+   if(cur == PH_BULLISH)
      {
-      PhTrade_UnlockSeq(g_trade);
-      if(PhTrade_Open(g_trade,g_tradeCfg,ORDER_TYPE_BUY,"PH_HD"))
-         Print("Phase Trade: BUY on support HD (hidden bull)");
+      if(g_div.newHiddenBull)
+        {
+         PhTrade_UnlockSeq(g_trade);
+         if(PhTrade_Open(g_trade,g_tradeCfg,ORDER_TYPE_BUY,"PH_HD"))
+            Print("Phase Trade: BUY unlock+entry on support HD (hidden bull / sky)");
+        }
+      if(g_div.newHiddenBear)
+         Print("Phase Trade: ignore sell HD (yellow) in BUY regime — no unlock/open");
      }
-   if(cur == PH_BEARISH && g_div.newHiddenBear)
+   else if(cur == PH_BEARISH)
      {
-      PhTrade_UnlockSeq(g_trade);
-      if(PhTrade_Open(g_trade,g_tradeCfg,ORDER_TYPE_SELL,"PH_HD"))
-         Print("Phase Trade: SELL on support HD (hidden bear)");
+      if(g_div.newHiddenBear)
+        {
+         PhTrade_UnlockSeq(g_trade);
+         if(PhTrade_Open(g_trade,g_tradeCfg,ORDER_TYPE_SELL,"PH_HD"))
+            Print("Phase Trade: SELL unlock+entry on support HD (hidden bear / yellow)");
+        }
+      if(g_div.newHiddenBull)
+         Print("Phase Trade: ignore buy HD (sky) in SELL regime — no unlock/open");
      }
   }
 
@@ -359,12 +382,18 @@ void AdvanceBar()
    if(!CopyRsiTimes(hist))
       return;
 
+   PhTrade_SetMarkContext(g_rsiWindow,(ArraySize(g_rsi) > 1 ? g_rsi[1] : 0.0));
    PhRegimeAdvance(g_walk,g_srList,g_rsi,g_times,hist,g_cfg,g_regimes);
    ApplyTradeExitsAndEntries();
    PaintAll(hist);
    RunDivScan(false);
    ApplyDivTradeExits();
    ApplyHdTradeEntries();
+   if(InpEnableTrade)
+     {
+      const ENUM_PH_REGIME cur = (ArraySize(g_regimes) > 1 ? g_regimes[1] : PH_NEUTRAL);
+      PhTrade_CheckRealignUnlock(g_trade,cur,g_rsi);
+     }
   }
 
 int OnInit()
@@ -436,7 +465,12 @@ void OnDeinit(const int reason)
 void OnTick()
   {
    if(InpEnableTrade)
+     {
+      if(ArraySize(g_rsi) > 1)
+         PhTrade_SetMarkContext(g_rsiWindow,g_rsi[1]);
+      PhTrade_PollStackLossClose(g_trade,g_tradeCfg);
       PhTrade_PollSlLock(g_trade,g_tradeCfg);
+     }
 
    datetime t = iTime(_Symbol,_Period,0);
    if(t == 0 || t == g_lastBar) return;
@@ -447,7 +481,12 @@ void OnTick()
 void OnTimer()
   {
    if(InpEnableTrade)
+     {
+      if(ArraySize(g_rsi) > 1)
+         PhTrade_SetMarkContext(g_rsiWindow,g_rsi[1]);
+      PhTrade_PollStackLossClose(g_trade,g_tradeCfg);
       PhTrade_PollSlLock(g_trade,g_tradeCfg);
+     }
    if(InpShowBackground) PhResizeBg();
    if(InpShowDash || InpShowLossMonitor)
       PaintDash(false);

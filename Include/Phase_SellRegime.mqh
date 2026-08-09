@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                         Phase_SellRegime.mqh     |
-//| Leave SELL only: cross INV + STAY above 65 (failed spike cancels)|
+//| Leave SELL: stay above resist S&R (INV) — mirror of Buy leave    |
 //+------------------------------------------------------------------+
 #ifndef PHASE_SELL_REGIME_MQH
 #define PHASE_SELL_REGIME_MQH
@@ -13,33 +13,36 @@ void PhSell_TrackCap(SPhWalk &w,const SPhConfig &cfg,const double v)
       w.taggedCap = true;
   }
 
-// leave SELL: clear INV + stay >65; if no INV → stay >65 only
+// leave SELL: stay above INV resist; if no INV → stay >65 only
+// Mirror PhBuy_Process (buy: stay below support / 35)
 bool PhSell_Process(SPhWalk &w,const SPhConfig &cfg,const double v)
   {
    const int hold = MathMax(1,cfg.holdBars);
    const int need = MathMax(1,cfg.confirmBars);
    w.floorHolds = 0;
 
+   // invOn: resist S&R line only; else bearCap (65)
    const double needLvl = w.invOn
-                          ? MathMax(w.invLevel,cfg.bearCap) + cfg.tol
-                          : cfg.bearCap + cfg.tol;
+                          ? (w.invLevel + cfg.tol)
+                          : (cfg.bearCap + cfg.tol);
 
-   if(v > needLvl)
+   // rejected back at/under INV (or 65) → cancel pending BUY (stay SELL)
+   if(v <= needLvl)
      {
-      w.aboveCap++;
-      if(w.aboveCap >= hold)
-         w.breakoutPending = true;
-      if(w.breakoutPending)
-        {
-         w.pendingHold++;
-         if(w.pendingHold >= need)
-            return(true);
-        }
+      PhWalkClearBreakout(w);
       return(false);
      }
 
-   // rejected back under 65 / INV → cancel pending BUY (stay SELL)
-   PhWalkClearBreakout(w);
+   w.aboveCap++;
+   if(w.aboveCap >= hold)
+      w.breakoutPending = true;
+
+   if(w.breakoutPending)
+     {
+      w.pendingHold++;
+      if(w.pendingHold >= need)
+         return(true);
+     }
    return(false);
   }
 

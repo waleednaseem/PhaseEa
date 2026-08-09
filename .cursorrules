@@ -1,28 +1,35 @@
 # Phase — Project Intelligence
 
 ## Product
-RSI regime EA: visual + live bounce trades (v1.45).
+RSI regime EA: visual + live bounce trades (v1.47).
 
-## Regime (v1.29 freeze / ignite-once)
+## Regime (v1.29 freeze / ignite-once + S&R leave mirror)
 - OnInit: ONE 500-bar walk (ignite) → freeze `g_regimes` + keep `g_walk`
 - New bar: `PhRegimeAdvance` only — never rebuild past colours
 - Stick until INV/S&R leave rules fire (Buy/Sell Process)
 - Resist = highest swing >=70 & <80 (never below 70; not on 80)
 - Support = lowest swing <=25 & >20 (never above 25; not on 20)
-- S&R line: regime enter → regime END
+- S&R line: regime enter → regime END (RSI window `PH_SR_*`; Div ≠ regime leave)
+- BUY leave: stay **below** support INV (else <35) → SELL
+- SELL leave: stay **above** resist INV (else >65) → BUY — mirror of buy (`PhSell_Process`)
 - No INV → leave stay >65 (sell) / <35 (buy)
+- Price Div / BOS lines do **not** flip regime
 
-## Trade (v1.45)
+## Trade (v1.47)
 - BUY regime: bounce 35–40 / 50; **also** 60–65 pullback then bounce up (≥60) → buy
-- SELL regime: bounce 60–65 / 50; **also** 35–40 bounce down → sell
+- SELL regime: bounce 60–65 / 50; **also** 35–40 bounce-down → sell
 - Extra RSI S&R: last 100 bars RSI swing H/L — support **<35** / resist **>65** only; scan even if RSI window missing (draw optional); arm on touch → fire on bounce/reject (`Phase_PriceSR.mqh`)
 - Every bounce = new entry; lot 0.01; **SL = 2nd FVG only if ≥800 pips** (else min 800); **no fixed TP**
-- Regime change → CloseAll + unlock; red Div → close buys; green → close sells
+- Regime change → CloseAll + unlock
+- **Against regular Div + BOS break** (BUY↔red / SELL↔green) → **CloseAll + seq LOCK** (buy+sell same)
+- Unlock: support HD **or** support regular Div+BOS **or** brown FVG soft reject **or** against-lock realign (≤5 bars: SELL 60–65 bounce down / BUY 35–40 bounce up)
+- **Regime = parent:** opposite Div/HD never unlocks & never opens (SELL: ignore buy/sky HD + buy BOS unlock; BUY: ignore sell/yellow HD + sell BOS unlock)
+- **Stack loss CloseAll (unlocked):** starts at **≥4** opens — n=4 → last 1 loss; n>4 → last 2 all loss → CloseAll, **no lock** (`PhTrade_PollStackLossClose`)
 - Live new-bar only; HD does not exit
-- Support HD entry: BUY+hidden bull / SELL+hidden bear (`PH_HD`)
+- Support HD entry/unlock: BUY+hidden bull (sky) only / SELL+hidden bear (yellow) only — opposite HD ignored
 - Brown FVG soft reject: BUY=upper from-below reject-down / SELL=lower from-above reject-up → **Unlock + 1× `PH_FVG`** (not CloseAll; skip grey/full-through)
-- SL hit → CloseAll + **seq LOCK**
-- Unlock: helping HD **or** helping regular Div **or** supporting brown FVG reject
+- SL hit → CloseAll + **seq LOCK** (no realign window; wait HD/Div/FVG)
+- Lock/Unlock mark: yellow filled box on **chart + RSI** (`PH_SeqLk*` / `PH_SeqUk*`) + LOCK/UNLOCK text
 - Modules: `Phase_Trade.mqh`, `Phase_FVG.mqh`; magic `InpTradeMagic`
 
 ## FVG / iFVG (v1.45 — cache + SL + chart + reject)
@@ -33,11 +40,12 @@ RSI regime EA: visual + live bounce trades (v1.45).
 - Dyn SL: 2nd/3rd side-FVG only if dist ≥ max(800,slPips) via PhTrade_PipSize; else min-pips fallback
 - Soft reject trade runs even if `InpShowFvg` false (draw optional)
 
-## Divergence / BOS / HD (v1.39 from Future2EA)
+## Divergence / BOS / HD (v1.46)
 - Regular Div: nearest RSI tops/bottoms; 1st >60/<45; 2nd dead-zone bahar; path clean; nearest draw
 - HD: nearest-in-time RSI extrema; 35–65; min ΔRSI; no BOS
 - Phase_RSI: levels 20/35/40/50/60/65/80 all white solid
-- Live flags: `newRegularBear` / `newRegularBull` on `SPhDivState`
+- Live flags: `newRegular*` / `newHidden*` / **`newBosBreakBear|Bull`** (pending primary BOS watch)
+- Trade BOS watch armed even if `InpShowBos` false (draw optional)
 
 ## Drawing
 - Prefix `PH_`

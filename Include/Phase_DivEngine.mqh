@@ -34,6 +34,15 @@ struct SPhDivCfg
    int               lineWidth;
   };
 
+struct SPhBosWatch
+  {
+   bool        valid;
+   EPh_DivType type;
+   double      bosLevel;
+   datetime    detectTime;
+   bool        brokenDone;     // break already signaled once
+  };
+
 struct SPhDivState
   {
    SPh_Pivot highPivots[];
@@ -46,6 +55,10 @@ struct SPhDivState
    bool      newRegularBull;   // green regular div confirmed this live bar
    bool      newHiddenBear;    // HD bear (sell-regime support)
    bool      newHiddenBull;    // HD bull (buy-regime support)
+   bool      newBosBreakBear;  // pending bear Div BOS broken this poll
+   bool      newBosBreakBull;  // pending bull Div BOS broken this poll
+   SPhBosWatch watchBear;
+   SPhBosWatch watchBull;
   };
 
 void PhDiv_CfgDefault(SPhDivCfg &c)
@@ -73,6 +86,37 @@ void PhDiv_CfgDefault(SPhDivCfg &c)
    c.lineWidth     = 2;
   }
 
+void PhDiv_ClearBosWatch(SPhBosWatch &w)
+  {
+   w.valid       = false;
+   w.type        = Ph_DIV_NONE;
+   w.bosLevel    = 0.0;
+   w.detectTime  = 0;
+   w.brokenDone  = false;
+  }
+
+void PhDiv_ArmBosWatch(SPhDivState &st,const SPh_Divergence &div)
+  {
+   if(!div.valid || div.bosLevel <= 0.0)
+      return;
+   if(div.type == Ph_DIV_BEAR)
+     {
+      st.watchBear.valid      = true;
+      st.watchBear.type       = Ph_DIV_BEAR;
+      st.watchBear.bosLevel   = div.bosLevel;
+      st.watchBear.detectTime = div.detectTime;
+      st.watchBear.brokenDone = false;
+     }
+   else if(div.type == Ph_DIV_BULL)
+     {
+      st.watchBull.valid      = true;
+      st.watchBull.type       = Ph_DIV_BULL;
+      st.watchBull.bosLevel   = div.bosLevel;
+      st.watchBull.detectTime = div.detectTime;
+      st.watchBull.brokenDone = false;
+     }
+  }
+
 void PhDiv_StateInit(SPhDivState &st)
   {
    ArrayResize(st.highPivots,0);
@@ -85,6 +129,10 @@ void PhDiv_StateInit(SPhDivState &st)
    st.newRegularBull = false;
    st.newHiddenBear  = false;
    st.newHiddenBull  = false;
+   st.newBosBreakBear = false;
+   st.newBosBreakBull = false;
+   PhDiv_ClearBosWatch(st.watchBear);
+   PhDiv_ClearBosWatch(st.watchBull);
   }
 
 void PhDiv_ClearTradeFlags(SPhDivState &st)
@@ -93,6 +141,41 @@ void PhDiv_ClearTradeFlags(SPhDivState &st)
    st.newRegularBull = false;
    st.newHiddenBear  = false;
    st.newHiddenBull  = false;
+   st.newBosBreakBear = false;
+   st.newBosBreakBull = false;
+  }
+
+// Poll pending Div BOS watches (fire once on first break)
+void PhDiv_PollBosBreaks(SPhDivState &st,const SPhDivCfg &cfg)
+  {
+   st.newBosBreakBear = false;
+   st.newBosBreakBull = false;
+
+   if(st.watchBear.valid && !st.watchBear.brokenDone && st.watchBear.bosLevel > 0.0 &&
+      st.watchBear.detectTime > 0)
+     {
+      datetime breakT = Ph_FindBosBreakTime(_Symbol,_Period,st.watchBear.detectTime,
+                                            Ph_DIV_BEAR,st.watchBear.bosLevel,
+                                            cfg.bosMode,cfg.bosMaxCandles);
+      if(breakT > 0)
+        {
+         st.newBosBreakBear = true;
+         st.watchBear.brokenDone = true;
+        }
+     }
+
+   if(st.watchBull.valid && !st.watchBull.brokenDone && st.watchBull.bosLevel > 0.0 &&
+      st.watchBull.detectTime > 0)
+     {
+      datetime breakT = Ph_FindBosBreakTime(_Symbol,_Period,st.watchBull.detectTime,
+                                            Ph_DIV_BULL,st.watchBull.bosLevel,
+                                            cfg.bosMode,cfg.bosMaxCandles);
+      if(breakT > 0)
+        {
+         st.newBosBreakBull = true;
+         st.watchBull.brokenDone = true;
+        }
+     }
   }
 
 void PhDiv_OnNewPivotHigh(SPhDivState &st,const SPhDivCfg &cfg,const SPh_Pivot &pivot)
@@ -125,13 +208,16 @@ void PhDiv_OnNewPivotHigh(SPhDivState &st,const SPhDivCfg &cfg,const SPh_Pivot &
             st.newRegularBear = true;
          break;
         }
-      if(primary >= 0 && cfg.showBos)
+      if(primary >= 0)
         {
          SPh_Divergence bosDiv = all[primary];
          Ph_ApplyChainBos(st.highPivots,pos,_Symbol,_Period,
                           cfg.minDivBars,cfg.maxDivBars,
                           cfg.deadLow,cfg.deadHigh,st.rsiHandle,bosDiv);
-         Ph_DrawBos(0,bosDiv,_Period,cfg.bosMaxCandles,cfg.bosMode);
+         if(cfg.showBos)
+            Ph_DrawBos(0,bosDiv,_Period,cfg.bosMaxCandles,cfg.bosMode);
+         if(st.liveTradeFlags)
+            PhDiv_ArmBosWatch(st,bosDiv);
         }
      }
 
@@ -186,13 +272,16 @@ void PhDiv_OnNewPivotLow(SPhDivState &st,const SPhDivCfg &cfg,const SPh_Pivot &p
             st.newRegularBull = true;
          break;
         }
-      if(primary >= 0 && cfg.showBos)
+      if(primary >= 0)
         {
          SPh_Divergence bosDiv = all[primary];
          Ph_ApplyChainBos(st.lowPivots,pos,_Symbol,_Period,
                           cfg.minDivBars,cfg.maxDivBars,
                           cfg.deadLow,cfg.deadHigh,st.rsiHandle,bosDiv);
-         Ph_DrawBos(0,bosDiv,_Period,cfg.bosMaxCandles,cfg.bosMode);
+         if(cfg.showBos)
+            Ph_DrawBos(0,bosDiv,_Period,cfg.bosMaxCandles,cfg.bosMode);
+         if(st.liveTradeFlags)
+            PhDiv_ArmBosWatch(st,bosDiv);
         }
      }
 
@@ -265,6 +354,8 @@ void PhDiv_ScanHistory(SPhDivState &st,const SPhDivCfg &cfg)
    ArrayResize(st.lowPivots,0);
    st.liveTradeFlags = false;
    PhDiv_ClearTradeFlags(st);
+   PhDiv_ClearBosWatch(st.watchBear);
+   PhDiv_ClearBosWatch(st.watchBull);
 
    int bars = Bars(_Symbol,_Period);
    int need = MathMin(cfg.lookback + cfg.pivotLeft + 5,bars);
@@ -297,16 +388,37 @@ void PhDiv_ProcessLiveBar(SPhDivState &st,const SPhDivCfg &cfg)
    int need = shift + cfg.pivotLeft + 2;
    double highs[],lows[],rsiValues[];
    datetime times[];
-   if(CopyHigh(_Symbol,_Period,0,need,highs) < need) { st.liveTradeFlags = false; return; }
-   if(CopyLow(_Symbol,_Period,0,need,lows) < need) { st.liveTradeFlags = false; return; }
-   if(CopyTime(_Symbol,_Period,0,need,times) < need) { st.liveTradeFlags = false; return; }
-   if(CopyBuffer(st.rsiHandle,0,0,need,rsiValues) < need) { st.liveTradeFlags = false; return; }
+   if(CopyHigh(_Symbol,_Period,0,need,highs) < need)
+     {
+      st.liveTradeFlags = false;
+      PhDiv_PollBosBreaks(st,cfg);
+      return;
+     }
+   if(CopyLow(_Symbol,_Period,0,need,lows) < need)
+     {
+      st.liveTradeFlags = false;
+      PhDiv_PollBosBreaks(st,cfg);
+      return;
+     }
+   if(CopyTime(_Symbol,_Period,0,need,times) < need)
+     {
+      st.liveTradeFlags = false;
+      PhDiv_PollBosBreaks(st,cfg);
+      return;
+     }
+   if(CopyBuffer(st.rsiHandle,0,0,need,rsiValues) < need)
+     {
+      st.liveTradeFlags = false;
+      PhDiv_PollBosBreaks(st,cfg);
+      return;
+     }
    ArraySetAsSeries(highs,true);
    ArraySetAsSeries(lows,true);
    ArraySetAsSeries(times,true);
    ArraySetAsSeries(rsiValues,true);
    PhDiv_ProcessBarFromArrays(st,cfg,shift,highs,lows,rsiValues,times);
    st.liveTradeFlags = false;
+   PhDiv_PollBosBreaks(st,cfg);
   }
 
 void PhDiv_RefreshHiddenVisuals(SPhDivState &st,const SPhDivCfg &cfg)
