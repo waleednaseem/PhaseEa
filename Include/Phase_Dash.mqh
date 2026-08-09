@@ -33,13 +33,44 @@ struct SPhDash
    bool           ready;
    bool           uiBuilt;
    int            lossY;
+   // Regime pip/trade monitor — from EA attach only (live ticks, not candle hist)
+   datetime       monFrom;
+   ENUM_PH_REGIME monReg;
+   datetime       monSegStart;
+   double         monSegHi;
+   double         monSegLo;
+   int            monN;
+   double         monSumPips;
+   double         monMaxPips;
+   double         monMinPips;
+   int            monSumTrades;
+   int            monMaxTrades;
+   bool           monHas;
   };
+
+void PhDash_MonClear(SPhDash &d)
+  {
+   d.monFrom      = TimeCurrent();
+   d.monReg       = PH_NEUTRAL;
+   d.monSegStart  = 0;
+   d.monSegHi     = 0.0;
+   d.monSegLo     = 0.0;
+   d.monN         = 0;
+   d.monSumPips   = 0.0;
+   d.monMaxPips   = 0.0;
+   d.monMinPips   = 0.0;
+   d.monSumTrades = 0;
+   d.monMaxTrades = 0;
+   d.monHas       = false;
+  }
 
 void PhDash_Init(SPhDash &d)
   {
    d.ready   = false;
    d.uiBuilt = false;
    d.lossY   = PH_DASH_Y0;
+   PhDash_MonClear(d);
+   d.monFrom = 0;
    for(int i = 0; i < PH_DASH_N; i++)
      {
       d.rsiH[i]    = INVALID_HANDLE;
@@ -197,9 +228,188 @@ string PhDash_Money(const double v)
    return(DoubleToString(v,2));
   }
 
+string PhDash_Pips(const double v)
+  {
+   return(DoubleToString(v,0) + "p");
+  }
+
+double PhDash_PipSize()
+  {
+   double point = SymbolInfoDouble(_Symbol,SYMBOL_POINT);
+   if(point <= 0.0)
+      point = 0.00001;
+   int digits = (int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
+   if(digits == 3 || digits == 5)
+      return(point * 10.0);
+   return(point);
+  }
+
+int PhDash_CountEntriesSince(const long magic,const datetime from,const datetime to)
+  {
+   if(from <= 0 || to < from)
+      return(0);
+   int cnt = 0;
+   if(!HistorySelect(from,to))
+      return(0);
+   int deals = HistoryDealsTotal();
+   for(int i = 0; i < deals; i++)
+     {
+      ulong ticket = HistoryDealGetTicket(i);
+      if(ticket == 0)
+         continue;
+      if(HistoryDealGetInteger(ticket,DEAL_ENTRY) != DEAL_ENTRY_IN)
+         continue;
+      if(magic != 0 && HistoryDealGetInteger(ticket,DEAL_MAGIC) != magic)
+         continue;
+      if(HistoryDealGetString(ticket,DEAL_SYMBOL) != _Symbol)
+         continue;
+      datetime t = (datetime)HistoryDealGetInteger(ticket,DEAL_TIME);
+      if(t < from || t > to)
+         continue;
+      cnt++;
+     }
+   return(cnt);
+  }
+
+void PhDash_MonCommitSeg(SPhDash &d,const long magic,const datetime endT)
+  {
+   if(d.monReg != PH_BULLISH && d.monReg != PH_BEARISH)
+      return;
+   double pip = PhDash_PipSize();
+   if(pip <= 0.0 || d.monSegHi <= 0.0 || d.monSegLo <= 0.0)
+      return;
+   double pips = (d.monSegHi - d.monSegLo) / pip;
+   if(pips < 0.0)
+      pips = 0.0;
+   int tr = PhDash_CountEntriesSince(magic,d.monSegStart,endT);
+
+   d.monSumPips += pips;
+   d.monSumTrades += tr;
+   d.monN++;
+   if(!d.monHas || pips > d.monMaxPips)
+      d.monMaxPips = pips;
+   if(!d.monHas || pips < d.monMinPips)
+      d.monMinPips = pips;
+   if(tr > d.monMaxTrades)
+      d.monMaxTrades = tr;
+   d.monHas = true;
+  }
+
+// Live session: track BUY/SELL range from attach via ticks (not candle hist)
+void PhDash_MonUpdate(SPhDash &d,const ENUM_PH_REGIME cur,const long magic,
+                      const bool reset)
+  {
+   if(reset || d.monFrom == 0)
+      PhDash_MonClear(d);
+
+   double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   if(bid <= 0.0)
+      return;
+   if(ask <= 0.0)
+      ask = bid;
+   const double hiPx = MathMax(bid,ask);
+   const double loPx = MathMin(bid,ask);
+
+   const bool curOk = (cur == PH_BULLISH || cur == PH_BEARISH);
+   const bool wasOk = (d.monReg == PH_BULLISH || d.monReg == PH_BEARISH);
+
+   if(wasOk && (!curOk || cur != d.monReg))
+     {
+      PhDash_MonCommitSeg(d,magic,TimeCurrent());
+      d.monReg = PH_NEUTRAL;
+      d.monSegStart = 0;
+      d.monSegHi = 0.0;
+      d.monSegLo = 0.0;
+     }
+
+   if(curOk)
+     {
+      if(d.monReg != cur)
+        {
+         d.monReg = cur;
+         d.monSegStart = TimeCurrent();
+         d.monSegHi = hiPx;
+         d.monSegLo = loPx;
+        }
+      else
+        {
+         if(hiPx > d.monSegHi)
+            d.monSegHi = hiPx;
+         if(loPx < d.monSegLo)
+            d.monSegLo = loPx;
+        }
+     }
+  }
+
+bool PhDash_MonStats(SPhDash &d,const long magic,
+                     double &maxPips,double &avgPips,double &minPips,
+                     int &maxTrades,double &avgTrades,const int liveSegTrades)
+  {
+   maxPips = 0.0;
+   avgPips = 0.0;
+   minPips = 0.0;
+   maxTrades = 0;
+   avgTrades = 0.0;
+
+   double sumP = d.monSumPips;
+   int    n    = d.monN;
+   double mxP  = d.monMaxPips;
+   double mnP  = d.monMinPips;
+   int    sumT = d.monSumTrades;
+   int    mxT  = d.monMaxTrades;
+   bool   has  = d.monHas;
+
+   if(d.monReg == PH_BULLISH || d.monReg == PH_BEARISH)
+     {
+      double pip = PhDash_PipSize();
+      if(pip > 0.0 && d.monSegHi > 0.0 && d.monSegLo > 0.0)
+        {
+         double pips = (d.monSegHi - d.monSegLo) / pip;
+         if(pips < 0.0)
+            pips = 0.0;
+         sumP += pips;
+         n++;
+         if(!has || pips > mxP)
+            mxP = pips;
+         if(!has || pips < mnP)
+            mnP = pips;
+         sumT += liveSegTrades;
+         if(liveSegTrades > mxT)
+            mxT = liveSegTrades;
+         has = true;
+        }
+     }
+
+   if(!has || n <= 0)
+      return(false);
+
+   maxPips = mxP;
+   minPips = mnP;
+   avgPips = sumP / (double)n;
+   maxTrades = mxT;
+   avgTrades = (double)sumT / (double)n;
+   return(true);
+  }
+
 string PhDash_LossGvFloat(const long magic)
   {
    return("PH_LM_MaxFloat_" + IntegerToString(magic) + "_" + _Symbol);
+  }
+
+string PhDash_LossGvFloatProfit(const long magic)
+  {
+   return("PH_LM_MaxFloatP_" + IntegerToString(magic) + "_" + _Symbol);
+  }
+
+string PhDash_LossGvFloatProfitSum(const long magic)
+  {
+   return("PH_LM_AvgFloatPSum_" + IntegerToString(magic) + "_" + _Symbol);
+  }
+
+string PhDash_LossGvFloatProfitN(const long magic)
+  {
+   return("PH_LM_AvgFloatPN_" + IntegerToString(magic) + "_" + _Symbol);
   }
 
 string PhDash_LossGvDd(const long magic)
@@ -207,7 +417,8 @@ string PhDash_LossGvDd(const long magic)
    return("PH_LM_MaxDD_" + IntegerToString(magic) + "_" + _Symbol);
   }
 
-double PhDash_LossMaxDd(const long magic,const double curFloat,double &cumClosed)
+double PhDash_LossMaxDd(const long magic,const double curFloat,double &cumClosed,
+                        const datetime fromAttach=0)
   {
    cumClosed = 0.0;
    datetime times[];
@@ -215,7 +426,8 @@ double PhDash_LossMaxDd(const long magic,const double curFloat,double &cumClosed
    ArrayResize(times,0);
    ArrayResize(pnls,0);
 
-   if(HistorySelect(0,TimeCurrent()))
+   datetime from = (fromAttach > 0 ? fromAttach : 0);
+   if(HistorySelect(from,TimeCurrent()))
      {
       int deals = HistoryDealsTotal();
       for(int i = 0; i < deals; i++)
@@ -230,13 +442,16 @@ double PhDash_LossMaxDd(const long magic,const double curFloat,double &cumClosed
             continue;
          if(HistoryDealGetString(ticket,DEAL_SYMBOL) != _Symbol)
             continue;
+         datetime t = (datetime)HistoryDealGetInteger(ticket,DEAL_TIME);
+         if(from > 0 && t < from)
+            continue;
          double pnl = HistoryDealGetDouble(ticket,DEAL_PROFIT)
                       + HistoryDealGetDouble(ticket,DEAL_SWAP)
                       + HistoryDealGetDouble(ticket,DEAL_COMMISSION);
          int n = ArraySize(times);
          ArrayResize(times,n + 1);
          ArrayResize(pnls,n + 1);
-         times[n] = (datetime)HistoryDealGetInteger(ticket,DEAL_TIME);
+         times[n] = t;
          pnls[n]  = pnl;
         }
      }
@@ -313,10 +528,11 @@ int PhDash_PaintRegime(SPhDash &d,const bool show,
    return(y + h + PH_DASH_GAP);
   }
 
-void PhDash_PaintLoss(const bool show,const long magic,const bool resetPeaks,
+void PhDash_PaintLoss(SPhDash &d,const bool show,const long magic,const bool resetPeaks,
                       const int y,
                       const color textClr,const color backClr,const color borderClr,
-                      const color lossClr,const color profitClr)
+                      const color lossClr,const color profitClr,
+                      const ENUM_PH_REGIME curReg)
   {
    const string pfx = g_phPrefix + "LOSS_";
    if(!show)
@@ -326,18 +542,28 @@ void PhDash_PaintLoss(const bool show,const long magic,const bool resetPeaks,
      }
 
    string baskKey = PhDash_LossGvFloat(magic);
+   string fpKey   = PhDash_LossGvFloatProfit(magic);
+   string fpsKey  = PhDash_LossGvFloatProfitSum(magic);
+   string fpnKey  = PhDash_LossGvFloatProfitN(magic);
    string ddKey   = PhDash_LossGvDd(magic);
    double maxFloat = 0.0;
+   double maxFloatP = 0.0;
+   double avgFloatP = 0.0;
    double maxDd    = 0.0;
    if(resetPeaks)
      {
       GlobalVariableSet(baskKey,0.0);
+      GlobalVariableSet(fpKey,0.0);
+      GlobalVariableSet(fpsKey,0.0);
+      GlobalVariableSet(fpnKey,0.0);
       GlobalVariableSet(ddKey,0.0);
      }
    else
      {
       if(GlobalVariableCheck(baskKey))
          maxFloat = GlobalVariableGet(baskKey);
+      if(GlobalVariableCheck(fpKey))
+         maxFloatP = GlobalVariableGet(fpKey);
       if(GlobalVariableCheck(ddKey))
          maxDd = GlobalVariableGet(ddKey);
      }
@@ -358,24 +584,60 @@ void PhDash_PaintLoss(const bool show,const long magic,const bool resetPeaks,
       maxFloat = curFloat;
    GlobalVariableSet(baskKey,maxFloat);
 
+   if(curFloat > maxFloatP)
+      maxFloatP = curFloat;
+   GlobalVariableSet(fpKey,maxFloatP);
+
+   // Avg floating profit = mean of positive float samples (live ticks)
+   if(curFloat > 0.0)
+     {
+      double sum = 0.0;
+      double n   = 0.0;
+      if(GlobalVariableCheck(fpsKey))
+         sum = GlobalVariableGet(fpsKey);
+      if(GlobalVariableCheck(fpnKey))
+         n = GlobalVariableGet(fpnKey);
+      sum += curFloat;
+      n   += 1.0;
+      GlobalVariableSet(fpsKey,sum);
+      GlobalVariableSet(fpnKey,n);
+      avgFloatP = sum / n;
+     }
+   else if(GlobalVariableCheck(fpsKey) && GlobalVariableCheck(fpnKey))
+     {
+      double n = GlobalVariableGet(fpnKey);
+      if(n > 0.0)
+         avgFloatP = GlobalVariableGet(fpsKey) / n;
+     }
+
+   // Live regime pips/trades from EA attach (tick hi/lo — not candle hist)
+   PhDash_MonUpdate(d,curReg,magic,resetPeaks);
+
    // Heavy HistorySelect throttled (OnTimer is 1s) — float peaks stay live
    static datetime s_lastHist = 0;
    static double   s_maxLossTrade = 0.0;
    static int      s_lossTrades = 0;
    static int      s_profitTrades = 0;
    static double   s_cachedDd = 0.0;
+   static double   s_regMax = 0.0;
+   static double   s_regAvg = 0.0;
+   static double   s_regMin = 0.0;
+   static int      s_trMax = 0;
+   static double   s_trAvg = 0.0;
+   static int      s_liveSegTrades = 0;
    const bool doHist = (resetPeaks || s_lastHist == 0 ||
                         (TimeCurrent() - s_lastHist) >= 5);
 
    double cumClosed = 0.0;
    if(doHist)
      {
-      double ddNow = PhDash_LossMaxDd(magic,curFloat,cumClosed);
+      datetime from = (d.monFrom > 0 ? d.monFrom : 0);
+      double ddNow = PhDash_LossMaxDd(magic,curFloat,cumClosed,from);
       s_cachedDd = ddNow;
       s_maxLossTrade = 0.0;
       s_lossTrades = 0;
       s_profitTrades = 0;
-      if(HistorySelect(0,TimeCurrent()))
+      if(HistorySelect(from,TimeCurrent()))
         {
          int deals = HistoryDealsTotal();
          for(int i = 0; i < deals; i++)
@@ -390,6 +652,9 @@ void PhDash_PaintLoss(const bool show,const long magic,const bool resetPeaks,
                continue;
             if(HistoryDealGetString(ticket,DEAL_SYMBOL) != _Symbol)
                continue;
+            datetime t = (datetime)HistoryDealGetInteger(ticket,DEAL_TIME);
+            if(from > 0 && t < from)
+               continue;
             double pnl = HistoryDealGetDouble(ticket,DEAL_PROFIT)
                          + HistoryDealGetDouble(ticket,DEAL_SWAP)
                          + HistoryDealGetDouble(ticket,DEAL_COMMISSION);
@@ -403,7 +668,23 @@ void PhDash_PaintLoss(const bool show,const long magic,const bool resetPeaks,
                s_profitTrades++;
            }
         }
+      if(d.monSegStart > 0)
+         s_liveSegTrades = PhDash_CountEntriesSince(magic,d.monSegStart,TimeCurrent());
+      else
+         s_liveSegTrades = 0;
       s_lastHist = TimeCurrent();
+     }
+
+   double rMax=0,rAvg=0,rMin=0;
+   int tMax = 0;
+   double tAvg = 0.0;
+   if(PhDash_MonStats(d,magic,rMax,rAvg,rMin,tMax,tAvg,s_liveSegTrades))
+     {
+      s_regMax = rMax;
+      s_regAvg = rAvg;
+      s_regMin = rMin;
+      s_trMax = tMax;
+      s_trAvg = tAvg;
      }
 
    if(s_cachedDd < maxDd)
@@ -415,7 +696,7 @@ void PhDash_PaintLoss(const bool show,const long magic,const bool resetPeaks,
    int profitTrades = s_profitTrades;
 
    const int xL = PhDash_XL();
-   const int rows = 6;
+   const int rows = 13;
    const int h = rows * PH_DASH_ROW + PH_DASH_PAD * 2;
    string cur = AccountInfoString(ACCOUNT_CURRENCY);
 
@@ -425,6 +706,10 @@ void PhDash_PaintLoss(const bool show,const long magic,const bool resetPeaks,
    ry += PH_DASH_ROW;
    PhDash_SetLabel(pfx + "MF",xL - 6,ry,"MaxFloat " + PhDash_Money(maxFloat),lossClr,8);
    ry += PH_DASH_ROW;
+   PhDash_SetLabel(pfx + "MP",xL - 6,ry,"MaxFltP  " + PhDash_Money(maxFloatP),profitClr,8);
+   ry += PH_DASH_ROW;
+   PhDash_SetLabel(pfx + "AP",xL - 6,ry,"AvgFltP  " + PhDash_Money(avgFloatP),profitClr,8);
+   ry += PH_DASH_ROW;
    PhDash_SetLabel(pfx + "MD",xL - 6,ry,"MaxDD    " + PhDash_Money(maxDd),lossClr,8);
    ry += PH_DASH_ROW;
    PhDash_SetLabel(pfx + "ML",xL - 6,ry,"MaxLoss  " + PhDash_Money(maxLossTrade),lossClr,8);
@@ -432,20 +717,32 @@ void PhDash_PaintLoss(const bool show,const long magic,const bool resetPeaks,
    PhDash_SetLabel(pfx + "LT",xL - 6,ry,"LossTr   " + IntegerToString(lossTrades),lossClr,8);
    ry += PH_DASH_ROW;
    PhDash_SetLabel(pfx + "PT",xL - 6,ry,"ProfitTr " + IntegerToString(profitTrades),profitClr,8);
+   ry += PH_DASH_ROW;
+   PhDash_SetLabel(pfx + "RX",xL - 6,ry,"RegMax   " + PhDash_Pips(s_regMax),textClr,8);
+   ry += PH_DASH_ROW;
+   PhDash_SetLabel(pfx + "RA",xL - 6,ry,"RegAvg   " + PhDash_Pips(s_regAvg),textClr,8);
+   ry += PH_DASH_ROW;
+   PhDash_SetLabel(pfx + "RN",xL - 6,ry,"RegMin   " + PhDash_Pips(s_regMin),textClr,8);
+   ry += PH_DASH_ROW;
+   PhDash_SetLabel(pfx + "TX",xL - 6,ry,"TrMax    " + IntegerToString(s_trMax),textClr,8);
+   ry += PH_DASH_ROW;
+   PhDash_SetLabel(pfx + "TA",xL - 6,ry,"TrAvg    " + DoubleToString(s_trAvg,1),textClr,8);
   }
 
 void PhDash_PaintAll(SPhDash &d,const bool showRegime,const bool showLoss,
                      const SPhConfig &cfg,const bool forceCalc,
                      const long magic,const bool resetLoss,
                      const color textClr,const color backClr,const color borderClr,
-                     const color lossClr,const color profitClr)
+                     const color lossClr,const color profitClr,
+                     const ENUM_PH_REGIME curReg)
   {
    if(showRegime && d.ready)
       PhDash_Refresh(d,cfg,forceCalc);
 
    int y = PhDash_PaintRegime(d,showRegime,textClr,backClr,borderClr);
    d.lossY = y;
-   PhDash_PaintLoss(showLoss,magic,resetLoss,y,textClr,backClr,borderClr,lossClr,profitClr);
+   PhDash_PaintLoss(d,showLoss,magic,resetLoss,y,textClr,backClr,borderClr,lossClr,profitClr,
+                    curReg);
   }
 
 #endif

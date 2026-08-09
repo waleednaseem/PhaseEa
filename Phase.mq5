@@ -197,10 +197,11 @@ void AttachPhaseRsi()
 
 void PaintDash(const bool forceCalc)
   {
+   const ENUM_PH_REGIME cur = (ArraySize(g_regimes) > 1 ? g_regimes[1] : PH_NEUTRAL);
    PhDash_PaintAll(g_dash,InpShowDash,InpShowLossMonitor,g_cfg,forceCalc,
                    LossMagicEffective(),false,
                    InpDashTextClr,InpDashBackClr,InpDashBorderClr,
-                   InpLossClr,InpProfitClr);
+                   InpLossClr,InpProfitClr,cur);
   }
 
 void ApplyTradeExitsAndEntries()
