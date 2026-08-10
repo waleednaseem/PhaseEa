@@ -34,7 +34,7 @@ input bool               InpShowBos        = true;   // white BOS line
 input int                InpPivotLeft      = 2;
 input int                InpPivotRight     = 2;
 input int                InpMinDivBars     = 3;
-input int                InpMaxDivBars     = 100;
+input int                InpMaxDivBars     = 50;
 input int                InpMinHdBars      = 4;
 input int                InpMaxHdBars      = 40;
 input int                InpBosMaxCandles  = 50;
@@ -55,7 +55,7 @@ input bool               InpShowBackground = true;
 input bool               InpShowHistory    = true;
 input bool               InpShowBoxes      = true;
 input bool               InpShowSignals    = true;
-input bool               InpShowRsiSR      = true;
+input bool               InpShowRsiSR      = false; // S&R/INV disabled
 input bool               InpShowDash       = true;
 input bool               InpAttachRsi      = true;
 input color              InpBullColor      = C'12,55,32';
@@ -225,9 +225,7 @@ void ApplyTradeExitsAndEntries()
    PhTrade_CheckFvgReject(g_trade,g_tradeCfg,cur);
   }
 
-// Regime = parent.
-// Against Div+BOS → CloseAll + lock | Support Div+BOS → unlock only (same-side).
-// Opposite BOS never unlocks (SELL: bull/buy BOS; BUY: bear/sell BOS).
+// Against Div BOS break → CloseAll only (NO lock). Support BOS → no unlock needed.
 void ApplyDivTradeExits()
   {
    const ENUM_PH_REGIME cur = (ArraySize(g_regimes) > 1 ? g_regimes[1] : PH_NEUTRAL);
@@ -235,27 +233,15 @@ void ApplyDivTradeExits()
       return;
 
    const bool againstBos = (cur == PH_BULLISH) ? g_div.newBosBreakBear : g_div.newBosBreakBull;
-   const bool supportBos = (cur == PH_BULLISH) ? g_div.newBosBreakBull : g_div.newBosBreakBear;
+   if(!againstBos)
+      return;
 
-   if(againstBos)
-     {
-      int n = PhTrade_CloseAll(g_trade,g_tradeCfg);
-      PhTrade_LockAgainstDiv(g_trade);
-      PhTrade_ClearFvgArm(g_trade);
-      PhPriceSR_ClearArm(g_priceSR);
-      Print("Phase Trade: against Div+BOS → CloseAll n=",n,
-            " LOCKED (",EnumToString(cur),") — opposite BOS never unlocks");
-      return; // same bar: against wins over support
-     }
-
-   if(supportBos)
-     {
-      if(PhTrade_IsLocked(g_trade))
-        {
-         PhTrade_UnlockSeq(g_trade);
-         Print("Phase Trade: support Div+BOS → UNLOCK (",EnumToString(cur),")");
-        }
-     }
+   int n = PhTrade_CloseAll(g_trade,g_tradeCfg);
+   PhTrade_ClearFvgArm(g_trade);
+   PhPriceSR_ClearArm(g_priceSR);
+   PhTrade_ResetArms(g_trade);
+   Print("Phase Trade: against Div+BOS → CloseAll n=",n,
+         " (no lock, ",EnumToString(cur),")");
   }
 
 // Regime = parent. Unlock+open ONLY same-side HD.
@@ -390,11 +376,6 @@ void AdvanceBar()
    RunDivScan(false);
    ApplyDivTradeExits();
    ApplyHdTradeEntries();
-   if(InpEnableTrade)
-     {
-      const ENUM_PH_REGIME cur = (ArraySize(g_regimes) > 1 ? g_regimes[1] : PH_NEUTRAL);
-      PhTrade_CheckRealignUnlock(g_trade,cur,g_rsi);
-     }
   }
 
 int OnInit()

@@ -183,15 +183,11 @@ void PhTrade_LockSeq(SPhTradeState &st)
    PhTrade_PaintSeqMark(true);
   }
 
-// Against Div + BOS → CloseAll path (enables 4–5 bar regime-realign unlock)
+// Against Div+BOS lock — OFF (CloseAll only; no seq lock / realign)
 void PhTrade_LockAgainstDiv(SPhTradeState &st)
   {
-   st.seqLocked       = true;
-   st.againstDivLock  = true;
-   st.againstLockBars = 0;
-   st.realignArmed    = false;
-   PhTrade_ResetArms(st);
-   PhTrade_PaintSeqMark(true);
+   PhTrade_ClearAgainstLock(st);
+   // intentionally no seqLocked
   }
 
 void PhTrade_UnlockSeq(SPhTradeState &st)

@@ -194,30 +194,20 @@ void PhDiv_OnNewPivotHigh(SPhDivState &st,const SPhDivCfg &cfg,const SPh_Pivot &
                                      cfg.pivotLeft,cfg.pivotRight,all);
    if(n > 0)
      {
-      int primary = Ph_PickPrimaryDivIndex(all,n);
-      // nearest valid regular only (lambe false HH/LH cut)
-      for(int i = 0; i < n; i++)
+      // nearest pair only — do NOT expand BOS via old chain (false long structure)
+      int primary = 0;
+      if(!Ph_IsHiddenBearPattern(all[primary].pivotA,all[primary].pivotB))
         {
-         if(Ph_IsHiddenBearPattern(all[i].pivotA,all[i].pivotB))
-            continue;
-         Ph_DrawDivergenceLines(0,st.rsiWindow,all[i],
+         Ph_DrawDivergenceLines(0,st.rsiWindow,all[primary],
                                 cfg.bearClr,cfg.bullClr,
                                 cfg.hidBearClr,cfg.hidBullClr,
                                 cfg.lineWidth,cfg.showLines);
          if(st.liveTradeFlags)
             st.newRegularBear = true;
-         break;
-        }
-      if(primary >= 0)
-        {
-         SPh_Divergence bosDiv = all[primary];
-         Ph_ApplyChainBos(st.highPivots,pos,_Symbol,_Period,
-                          cfg.minDivBars,cfg.maxDivBars,
-                          cfg.deadLow,cfg.deadHigh,st.rsiHandle,bosDiv);
          if(cfg.showBos)
-            Ph_DrawBos(0,bosDiv,_Period,cfg.bosMaxCandles,cfg.bosMode);
+            Ph_DrawBos(0,all[primary],_Period,cfg.bosMaxCandles,cfg.bosMode);
          if(st.liveTradeFlags)
-            PhDiv_ArmBosWatch(st,bosDiv);
+            PhDiv_ArmBosWatch(st,all[primary]);
         }
      }
 
@@ -259,29 +249,20 @@ void PhDiv_OnNewPivotLow(SPhDivState &st,const SPhDivCfg &cfg,const SPh_Pivot &p
                                      cfg.pivotLeft,cfg.pivotRight,all);
    if(n > 0)
      {
-      int primary = Ph_PickPrimaryDivIndex(all,n);
-      for(int i = 0; i < n; i++)
+      // nearest pair only — do NOT expand BOS via old chain (false long structure)
+      int primary = 0;
+      if(!Ph_IsHiddenBullPattern(all[primary].pivotA,all[primary].pivotB))
         {
-         if(Ph_IsHiddenBullPattern(all[i].pivotA,all[i].pivotB))
-            continue;
-         Ph_DrawDivergenceLines(0,st.rsiWindow,all[i],
+         Ph_DrawDivergenceLines(0,st.rsiWindow,all[primary],
                                 cfg.bearClr,cfg.bullClr,
                                 cfg.hidBearClr,cfg.hidBullClr,
                                 cfg.lineWidth,cfg.showLines);
          if(st.liveTradeFlags)
             st.newRegularBull = true;
-         break;
-        }
-      if(primary >= 0)
-        {
-         SPh_Divergence bosDiv = all[primary];
-         Ph_ApplyChainBos(st.lowPivots,pos,_Symbol,_Period,
-                          cfg.minDivBars,cfg.maxDivBars,
-                          cfg.deadLow,cfg.deadHigh,st.rsiHandle,bosDiv);
          if(cfg.showBos)
-            Ph_DrawBos(0,bosDiv,_Period,cfg.bosMaxCandles,cfg.bosMode);
+            Ph_DrawBos(0,all[primary],_Period,cfg.bosMaxCandles,cfg.bosMode);
          if(st.liveTradeFlags)
-            PhDiv_ArmBosWatch(st,bosDiv);
+            PhDiv_ArmBosWatch(st,all[primary]);
         }
      }
 

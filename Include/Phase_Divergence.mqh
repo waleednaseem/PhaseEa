@@ -441,6 +441,7 @@ bool Ph_CalcBosLevel(const string symbol,const ENUM_TIMEFRAMES tf,
 
 // Saari valid bear divs collect (nearest pehle) — visual pe sab draw
 // Regular: dono pivots pe nearest RSI TOP; 1st RSI>60; 2nd dead-zone bahar; path clean
+// Sirf nearest / +1 swing — lambe false HH spans trade disturb karte hain
 int Ph_CollectBearDivergences(SPh_Pivot &highs[],const int currPos,
                                const string symbol,const ENUM_TIMEFRAMES tf,
                                const int minBars,const int maxBars,
@@ -455,6 +456,10 @@ int Ph_CollectBearDivergences(SPh_Pivot &highs[],const int currPos,
    SPh_Pivot curr = highs[currPos];
    for(int i = currPos - 1; i >= 0; i--)
      {
+      // only immediate previous swing (no skip) — false long div cut
+      if(currPos - i > 1)
+         break;
+
       SPh_Pivot prev = highs[i];
       int gap = Ph_BarGap(symbol,tf,prev,curr);
       if(gap < minBars)
@@ -476,8 +481,8 @@ int Ph_CollectBearDivergences(SPh_Pivot &highs[],const int currPos,
          continue;
       if(!Ph_IsValidBearPivotRsi(rsiA,deadLow,deadHigh))
          continue;
-      // 2nd mid-zone (35–65) pe regular band — HD territory / false LH
-      if(Ph_IsPivotInDeadZone(rsiB,deadLow,deadHigh))
+      // 2nd must stay overbought side (>65), not mid-zone / <35
+      if(rsiB <= deadHigh)
          continue;
 
       SPh_Pivot a = prev;
@@ -499,18 +504,18 @@ int Ph_CollectBearDivergences(SPh_Pivot &highs[],const int currPos,
       if(!Ph_CalcBosLevel(symbol,tf,a,b,Ph_DIV_BEAR,bosLvl,bosT))
          continue;
 
-      int n = ArraySize(outDivs);
-      ArrayResize(outDivs,n + 1);
-      outDivs[n].valid = true;
-      outDivs[n].isHidden = false;
-      outDivs[n].type = Ph_DIV_BEAR;
-      outDivs[n].pivotA = a;
-      outDivs[n].pivotB = b;
-      outDivs[n].bosLevel = bosLvl;
-      outDivs[n].bosTime = bosT;
-      outDivs[n].detectTime = curr.time;
+      ArrayResize(outDivs,1);
+      outDivs[0].valid = true;
+      outDivs[0].isHidden = false;
+      outDivs[0].type = Ph_DIV_BEAR;
+      outDivs[0].pivotA = a;
+      outDivs[0].pivotB = b;
+      outDivs[0].bosLevel = bosLvl;
+      outDivs[0].bosTime = bosT;
+      outDivs[0].detectTime = curr.time;
+      return(1); // nearest only
      }
-   return(ArraySize(outDivs));
+   return(0);
   }
 
 int Ph_CollectBullDivergences(SPh_Pivot &lows[],const int currPos,
@@ -527,6 +532,10 @@ int Ph_CollectBullDivergences(SPh_Pivot &lows[],const int currPos,
    SPh_Pivot curr = lows[currPos];
    for(int i = currPos - 1; i >= 0; i--)
      {
+      // only immediate previous swing (no skip) — false long div cut
+      if(currPos - i > 1)
+         break;
+
       SPh_Pivot prev = lows[i];
       int gap = Ph_BarGap(symbol,tf,prev,curr);
       if(gap < minBars)
@@ -548,7 +557,8 @@ int Ph_CollectBullDivergences(SPh_Pivot &lows[],const int currPos,
          continue;
       if(!Ph_IsValidBullPivotRsi(rsiA,deadLow,deadHigh))
          continue;
-      if(Ph_IsPivotInDeadZone(rsiB,deadLow,deadHigh))
+      // 2nd must stay oversold side (<35), not mid-zone / >65 (false HL)
+      if(rsiB >= deadLow)
          continue;
 
       SPh_Pivot a = prev;
@@ -570,18 +580,18 @@ int Ph_CollectBullDivergences(SPh_Pivot &lows[],const int currPos,
       if(!Ph_CalcBosLevel(symbol,tf,a,b,Ph_DIV_BULL,bosLvl,bosT))
          continue;
 
-      int n = ArraySize(outDivs);
-      ArrayResize(outDivs,n + 1);
-      outDivs[n].valid = true;
-      outDivs[n].isHidden = false;
-      outDivs[n].type = Ph_DIV_BULL;
-      outDivs[n].pivotA = a;
-      outDivs[n].pivotB = b;
-      outDivs[n].bosLevel = bosLvl;
-      outDivs[n].bosTime = bosT;
-      outDivs[n].detectTime = curr.time;
+      ArrayResize(outDivs,1);
+      outDivs[0].valid = true;
+      outDivs[0].isHidden = false;
+      outDivs[0].type = Ph_DIV_BULL;
+      outDivs[0].pivotA = a;
+      outDivs[0].pivotB = b;
+      outDivs[0].bosLevel = bosLvl;
+      outDivs[0].bosTime = bosT;
+      outDivs[0].detectTime = curr.time;
+      return(1); // nearest only
      }
-   return(ArraySize(outDivs));
+   return(0);
   }
 
 // Hidden bear — price LH + nearby RSI 2 tops (HH); sirf nearest valid pair
@@ -718,11 +728,9 @@ int Ph_CollectHiddenBullDivergences(SPh_Pivot &lows[],const int currPos,
    return(0);
   }
 
-// Same 2nd pivot pe kai divs: bull = highest BOS, bear = lowest BOS
-// (nearest chhota bounce primary NAHI)
+// Nearest valid regular only (index 0 after nearest-first collect)
 int Ph_PickPrimaryDivIndex(const SPh_Divergence &divs[],const int n)
   {
-   int best = -1;
    for(int i = 0; i < n; i++)
      {
       if(!divs[i].valid || divs[i].isHidden || divs[i].bosLevel <= 0.0)
@@ -733,25 +741,9 @@ int Ph_PickPrimaryDivIndex(const SPh_Divergence &divs[],const int n)
       if(divs[i].type == Ph_DIV_BULL &&
          Ph_IsHiddenBullPattern(divs[i].pivotA,divs[i].pivotB))
          continue;
-
-      if(best < 0)
-        {
-         best = i;
-         continue;
-        }
-
-      if(divs[i].type == Ph_DIV_BULL)
-        {
-         if(divs[i].bosLevel > divs[best].bosLevel)
-            best = i;
-        }
-      else if(divs[i].type == Ph_DIV_BEAR)
-        {
-         if(divs[i].bosLevel < divs[best].bosLevel)
-            best = i;
-        }
+      return(i); // nearest first
      }
-   return(best);
+   return(-1);
   }
 
 // Green/red "seq" = linked div chain (Low1→Low2→Low3).
@@ -919,8 +911,6 @@ bool Ph_FindBearDivergence(SPh_Pivot &highs[],const int currPos,
       return(false);
      }
    outDiv = all[primary];
-   Ph_ApplyChainBos(highs,currPos,symbol,tf,minBars,maxBars,
-                     deadLow,deadHigh,rsiHandle,outDiv);
    return(true);
   }
 
@@ -940,8 +930,6 @@ bool Ph_FindBullDivergence(SPh_Pivot &lows[],const int currPos,
       return(false);
      }
    outDiv = all[primary];
-   Ph_ApplyChainBos(lows,currPos,symbol,tf,minBars,maxBars,
-                     deadLow,deadHigh,rsiHandle,outDiv);
    return(true);
   }
 

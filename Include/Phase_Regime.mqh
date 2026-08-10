@@ -50,7 +50,9 @@ void PhEnterBull(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &tim
    w.barsInRegime     = 0;
    w.regimeStartShift = shift;
    PhWalkClearBreakout(w);
-   PhInv_StartBuy(w,L,rsi,times,shift,hist,cfg);
+   PhWalkClearInvBreak(w);
+   PhWalkClearInv(w); // S&R/INV disabled
+   PhWalkClearZoneStay(w);
   }
 
 void PhEnterBear(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &times[],
@@ -64,10 +66,12 @@ void PhEnterBear(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &tim
    w.barsInRegime     = 0;
    w.regimeStartShift = shift;
    PhWalkClearBreakout(w);
-   PhInv_StartSell(w,L,rsi,times,shift,hist,cfg);
+   PhWalkClearInvBreak(w);
+   PhWalkClearInv(w); // S&R/INV disabled
+   PhWalkClearZoneStay(w);
   }
 
-// One closed bar — leave only via INV/S&R rules (Buy/Sell Process)
+// One closed bar — leave/enter via 65/35 stay only (S&R OFF)
 void PhRegimeStep(SPhWalk &w,SPhSRList &L,
                   const double &rsi[],const datetime &times[],
                   const int shift,const int hist,const SPhConfig &cfg,
@@ -78,7 +82,6 @@ void PhRegimeStep(SPhWalk &w,SPhSRList &L,
 
    const double v = rsi[shift];
    const double vOlder = (shift + 1 <= hist ? rsi[shift + 1] : v);
-   const datetime t = times[shift];
    const int lockBars = PhRegimeLockBars(cfg);
 
    PhSell_TrackCap(w,cfg,v);
@@ -87,35 +90,30 @@ void PhRegimeStep(SPhWalk &w,SPhSRList &L,
    if(w.state == PH_BULLISH)
      {
       w.barsInRegime++;
-      PhInv_CaptureDuring(w,L,rsi,times,shift,hist,cfg);
-      PhInv_Refresh(w,L,rsi,times,shift,hist,cfg);
-      if(w.barsInRegime > lockBars && PhBuy_Process(w,cfg,v))
-        {
-         PhInv_Close(w,L,t);
+      if(w.barsInRegime > lockBars && PhBuy_Process(w,cfg,v,vOlder))
          PhEnterBear(w,L,rsi,times,shift,hist,cfg);
-        }
-      else
-         PhInv_Follow(w,L,t);
      }
    else if(w.state == PH_BEARISH)
      {
       w.barsInRegime++;
-      PhInv_CaptureDuring(w,L,rsi,times,shift,hist,cfg);
-      PhInv_Refresh(w,L,rsi,times,shift,hist,cfg);
-      if(w.barsInRegime > lockBars && PhSell_Process(w,cfg,v))
-        {
-         PhInv_Close(w,L,t);
+      if(w.barsInRegime > lockBars && PhSell_Process(w,cfg,v,vOlder))
          PhEnterBull(w,L,rsi,times,shift,hist,cfg);
-        }
-      else
-         PhInv_Follow(w,L,t);
      }
    else
      {
-      if(PhBuy_TryEnter(w,cfg,v))
-         PhEnterBull(w,L,rsi,times,shift,hist,cfg);
-      else if(PhSell_TryEnter(w,cfg,v))
-         PhEnterBear(w,L,rsi,times,shift,hist,cfg);
+      // don't let both arms fight — pick side by RSI
+      if(v >= 50.0)
+        {
+         PhWalkClearZoneSell(w);
+         if(PhBuy_TryEnter(w,cfg,v,vOlder))
+            PhEnterBull(w,L,rsi,times,shift,hist,cfg);
+        }
+      else
+        {
+         PhWalkClearZoneBuy(w);
+         if(PhSell_TryEnter(w,cfg,v,vOlder))
+            PhEnterBear(w,L,rsi,times,shift,hist,cfg);
+        }
      }
 
    regimes[shift] = w.state;

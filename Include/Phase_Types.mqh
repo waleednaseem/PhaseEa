@@ -49,14 +49,24 @@ struct SPhWalk
    bool taggedCap;
    bool taggedFloor;
    bool hadBreakout;
-   // per-regime INV from U-turn/bounce
-   double   invLevel;    // BUY=support, SELL=resist
+   // per-regime INV (unused — S&R OFF)
+   double   invLevel;
    datetime invTime;
    bool     invOn;
-   int      invSegIdx;   // index in SR list to extend (-1 none)
+   int      invSegIdx;
+   // Zone stay 65/35: cross + retest bounce / hold-bounce / park
+   bool     zBuyArmed;
+   int      zBuyAge;
+   bool     zBuyRetest;
+   bool     zBuyPullback;
+   bool     zSellArmed;
+   int      zSellAge;
+   bool     zSellRetest;
+   bool     zSellPullback;
   };
 
 #define PH_SR_MAX 256
+#define PH_ZONE_STAY_BARS 5
 struct SPhSRSeg
   {
    datetime t0;
@@ -131,6 +141,36 @@ void PhWalkReset(SPhWalk &w)
    w.invTime          = 0;
    w.invOn            = false;
    w.invSegIdx        = -1;
+   w.zBuyArmed        = false;
+   w.zBuyAge          = 0;
+   w.zBuyRetest       = false;
+   w.zBuyPullback     = false;
+   w.zSellArmed       = false;
+   w.zSellAge         = 0;
+   w.zSellRetest      = false;
+   w.zSellPullback    = false;
+  }
+
+void PhWalkClearZoneBuy(SPhWalk &w)
+  {
+   w.zBuyArmed    = false;
+   w.zBuyAge      = 0;
+   w.zBuyRetest   = false;
+   w.zBuyPullback = false;
+  }
+
+void PhWalkClearZoneSell(SPhWalk &w)
+  {
+   w.zSellArmed    = false;
+   w.zSellAge      = 0;
+   w.zSellRetest   = false;
+   w.zSellPullback = false;
+  }
+
+void PhWalkClearZoneStay(SPhWalk &w)
+  {
+   PhWalkClearZoneBuy(w);
+   PhWalkClearZoneSell(w);
   }
 
 void PhWalkClearBreakout(SPhWalk &w)
@@ -154,6 +194,147 @@ void PhWalkClearInv(SPhWalk &w)
    w.invOn     = false;
    w.invSegIdx = -1;
    PhWalkClearInvBreak(w);
+  }
+
+// --- 65/35 zone flip (S&R OFF): cross + retest bounce / hold bounce / park ---
+bool PhStay_Above65(const SPhConfig &cfg,const double v)
+  {
+   return(v + 1e-9 >= cfg.bearCap + cfg.tol);
+  }
+
+bool PhStay_Below35(const SPhConfig &cfg,const double v)
+  {
+   return(v <= cfg.bullHard - cfg.tol + 1e-9);
+  }
+
+bool PhStay_In6065(const SPhConfig &cfg,const double v)
+  {
+   const double lo = cfg.bearCapLo - cfg.tol;
+   const double hi = cfg.bearCap + cfg.tol;
+   return(v + 1e-9 >= lo && v < hi);
+  }
+
+bool PhStay_In3540(const SPhConfig &cfg,const double v)
+  {
+   const double lo = cfg.bullHard - cfg.tol;
+   const double hi = cfg.bullFloor + cfg.tol;
+   return(v > lo && v <= hi + 1e-9);
+  }
+
+// Cross 65 up OR already >65 → arm; confirm ONLY on bounce (no park-only)
+bool PhStay_BuyConfirm(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
+  {
+   const double lvl65 = cfg.bearCap + cfg.tol;
+   const double lvl60 = cfg.bearCapLo - cfg.tol;
+
+   // fresh cross up
+   if(vOlder < lvl65 && v + 1e-9 >= lvl65)
+     {
+      w.zBuyArmed    = true;
+      w.zBuyAge      = 1;
+      w.zBuyRetest   = false;
+      w.zBuyPullback = false;
+      return(false);
+     }
+
+   // already in zone → seed arm (still needs bounce to confirm)
+   if(!w.zBuyArmed && PhStay_Above65(cfg,v))
+     {
+      w.zBuyArmed    = true;
+      w.zBuyAge      = 1;
+      w.zBuyRetest   = false;
+      w.zBuyPullback = false;
+      return(false);
+     }
+
+   if(!w.zBuyArmed)
+      return(false);
+
+   // back below 60 → fake spike, cancel
+   if(v < lvl60)
+     {
+      PhWalkClearZoneBuy(w);
+      return(false);
+     }
+
+   w.zBuyAge++;
+
+   if(PhStay_In6065(cfg,v))
+      w.zBuyRetest = true;
+   if(PhStay_Above65(cfg,v) && v < vOlder)
+      w.zBuyPullback = true;
+
+   // Path A: 60-65 retest then bounce up
+   if(w.zBuyRetest && v > vOlder && v + 1e-9 >= lvl60)
+     {
+      PhWalkClearZoneBuy(w);
+      return(true);
+     }
+   // Path B: stayed up, small u-turn then bounce up
+   if(w.zBuyPullback && PhStay_Above65(cfg,v) && v > vOlder)
+     {
+      PhWalkClearZoneBuy(w);
+      return(true);
+     }
+   // no park-only — spike without bounce = no BUY
+   return(false);
+  }
+
+// Cross 35 down OR already <35 → arm; confirm ONLY on bounce (no park-only)
+bool PhStay_SellConfirm(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
+  {
+   const double lvl35 = cfg.bullHard - cfg.tol;
+   const double lvl40 = cfg.bullFloor + cfg.tol;
+
+   if(vOlder > lvl35 && v <= lvl35 + 1e-9)
+     {
+      w.zSellArmed    = true;
+      w.zSellAge      = 1;
+      w.zSellRetest   = false;
+      w.zSellPullback = false;
+      return(false);
+     }
+
+   if(!w.zSellArmed && PhStay_Below35(cfg,v))
+     {
+      w.zSellArmed    = true;
+      w.zSellAge      = 1;
+      w.zSellRetest   = false;
+      w.zSellPullback = false;
+      return(false);
+     }
+
+   if(!w.zSellArmed)
+      return(false);
+
+   // above 40 → fake spike, cancel
+   if(v > lvl40)
+     {
+      PhWalkClearZoneSell(w);
+      return(false);
+     }
+
+   w.zSellAge++;
+
+   if(PhStay_In3540(cfg,v))
+      w.zSellRetest = true;
+   if(PhStay_Below35(cfg,v) && v > vOlder)
+      w.zSellPullback = true;
+
+   // Path A: 35-40 retest then bounce down
+   if(w.zSellRetest && v < vOlder && v <= lvl40 + 1e-9)
+     {
+      PhWalkClearZoneSell(w);
+      return(true);
+     }
+   // Path B: stayed down, small u-turn then continue down
+   if(w.zSellPullback && PhStay_Below35(cfg,v) && v < vOlder)
+     {
+      PhWalkClearZoneSell(w);
+      return(true);
+     }
+   // no park-only — spike without bounce = no SELL
+   return(false);
   }
 
 #endif

@@ -3,16 +3,14 @@
 ## Product
 RSI regime EA: visual + live bounce trades (v1.47).
 
-## Regime (v1.29 freeze / ignite-once + S&R leave mirror)
+## Regime (v1.49 freeze / ignite-once — S&R OFF)
 - OnInit: ONE 500-bar walk (ignite) → freeze `g_regimes` + keep `g_walk`
 - New bar: `PhRegimeAdvance` only — never rebuild past colours
-- Stick until INV/S&R leave rules fire (Buy/Sell Process)
-- Resist = highest swing >=70 & <80 (never below 70; not on 80)
-- Support = lowest swing <=25 & >20 (never above 25; not on 20)
-- S&R line: regime enter → regime END (RSI window `PH_SR_*`; Div ≠ regime leave)
-- BUY leave: stay **below** support INV (else <35) → SELL
-- SELL leave: stay **above** resist INV (else >65) → BUY — mirror of buy (`PhSell_Process`)
-- No INV → leave stay >65 (sell) / <35 (buy)
+- **S&R/INV disabled** (no capture/refresh/lines for regime)
+- Enter/leave RSI zone (S&R OFF):
+  - **65** cross + (60-65 bounce OR upar chhota u-turn bounce) → BUY
+  - **35** cross + (35-40 bounce OR neeche chhota u-turn) → SELL
+  - Spike bina bounce = no flip; <60 / >40 → cancel arm
 - Price Div / BOS lines do **not** flip regime
 
 ## Trade (v1.47)
