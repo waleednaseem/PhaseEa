@@ -209,15 +209,30 @@ void ApplyTradeExitsAndEntries()
    const ENUM_PH_REGIME cur = (ArraySize(g_regimes) > 1 ? g_regimes[1] : PH_NEUTRAL);
    if(cur != g_lastRegime)
      {
-      int n = PhTrade_CloseAll(g_trade,g_tradeCfg);
-      if(n > 0)
-         Print("Phase Trade: regime change CloseAll n=",n,
-               " ",EnumToString(g_lastRegime)," -> ",EnumToString(cur));
+      // Opposite-div BOS + FVG/bounce U-turn → regime flicker pe bhi CloseAll mat
+      const bool wasBuy = (g_lastRegime == PH_BULLISH);
+      const bool wasSell = (g_lastRegime == PH_BEARISH);
+      const bool againstBos = (wasBuy && g_div.newBosBreakBear) ||
+                              (wasSell && g_div.newBosBreakBull);
+      const bool rescued = (wasBuy || wasSell) &&
+                           PhTrade_AgainstBosRescued(g_tradeCfg,wasBuy,g_rsi);
+
+      if(againstBos || rescued)
+        {
+         Print("Phase Trade: regime ",EnumToString(g_lastRegime)," -> ",
+               EnumToString(cur)," but DivBOS/FVG-bounce rescue — no CloseAll");
+        }
+      else
+        {
+         int n = PhTrade_CloseAll(g_trade,g_tradeCfg);
+         if(n > 0)
+            Print("Phase Trade: new regime CloseAll n=",n,
+                  " ",EnumToString(g_lastRegime)," -> ",EnumToString(cur));
+        }
       PhTrade_ResetArms(g_trade);
       PhTrade_ClearFvgArm(g_trade);
       PhPriceSR_ClearArm(g_priceSR);
-      if(PhTrade_IsLocked(g_trade))
-         PhTrade_UnlockSeq(g_trade);
+      PhTrade_ClearAgainstLock(g_trade);
      }
    PhTrade_CheckBounce(g_trade,g_tradeCfg,cur,g_rsi);
    PhPriceSR_Scan(g_priceSR,g_rsi,g_times,g_rsiWindow,InpPriceSRBars,2,InpShowPriceSR);
@@ -225,28 +240,16 @@ void ApplyTradeExitsAndEntries()
    PhTrade_CheckFvgReject(g_trade,g_tradeCfg,cur);
   }
 
-// Against Div BOS break → CloseAll only (NO lock). Support BOS → no unlock needed.
+// Opposite Div / against Div+BOS → no cut (trades continue).
 void ApplyDivTradeExits()
   {
    const ENUM_PH_REGIME cur = (ArraySize(g_regimes) > 1 ? g_regimes[1] : PH_NEUTRAL);
-   if(cur != PH_BULLISH && cur != PH_BEARISH)
-      return;
-
-   const bool againstBos = (cur == PH_BULLISH) ? g_div.newBosBreakBear : g_div.newBosBreakBull;
-   if(!againstBos)
-      return;
-
-   int n = PhTrade_CloseAll(g_trade,g_tradeCfg);
-   PhTrade_ClearFvgArm(g_trade);
-   PhPriceSR_ClearArm(g_priceSR);
-   PhTrade_ResetArms(g_trade);
-   Print("Phase Trade: against Div+BOS → CloseAll n=",n,
-         " (no lock, ",EnumToString(cur),")");
+   const bool againstBos = (cur == PH_BULLISH) ? g_div.newBosBreakBear :
+                           (cur == PH_BEARISH) ? g_div.newBosBreakBull : false;
+   PhTrade_PollAgainstBosExit(g_trade,g_tradeCfg,cur,g_rsi,againstBos);
   }
 
-// Regime = parent. Unlock+open ONLY same-side HD.
-// SELL → yellow hidden bear only | BUY → sky hidden bull only.
-// Opposite HD: no unlock, no open.
+// Regime = parent. Same-side HD → entry. Opposite HD ignored.
 void ApplyHdTradeEntries()
   {
    if(!InpEnableTrade)
@@ -257,23 +260,21 @@ void ApplyHdTradeEntries()
      {
       if(g_div.newHiddenBull)
         {
-         PhTrade_UnlockSeq(g_trade);
          if(PhTrade_Open(g_trade,g_tradeCfg,ORDER_TYPE_BUY,"PH_HD"))
-            Print("Phase Trade: BUY unlock+entry on support HD (hidden bull / sky)");
+            Print("Phase Trade: BUY on support HD (hidden bull / sky)");
         }
       if(g_div.newHiddenBear)
-         Print("Phase Trade: ignore sell HD (yellow) in BUY regime — no unlock/open");
+         Print("Phase Trade: ignore sell HD (yellow) in BUY regime");
      }
    else if(cur == PH_BEARISH)
      {
       if(g_div.newHiddenBear)
         {
-         PhTrade_UnlockSeq(g_trade);
          if(PhTrade_Open(g_trade,g_tradeCfg,ORDER_TYPE_SELL,"PH_HD"))
-            Print("Phase Trade: SELL unlock+entry on support HD (hidden bear / yellow)");
+            Print("Phase Trade: SELL on support HD (hidden bear / yellow)");
         }
       if(g_div.newHiddenBull)
-         Print("Phase Trade: ignore buy HD (sky) in SELL regime — no unlock/open");
+         Print("Phase Trade: ignore buy HD (sky) in SELL regime");
      }
   }
 
@@ -371,9 +372,10 @@ void AdvanceBar()
 
    PhTrade_SetMarkContext(g_rsiWindow,(ArraySize(g_rsi) > 1 ? g_rsi[1] : 0.0));
    PhRegimeAdvance(g_walk,g_srList,g_rsi,g_times,hist,g_cfg,g_regimes);
+   // Div/BOS pehle — regime CloseAll rescue ke liye flags chahiye
+   RunDivScan(false);
    ApplyTradeExitsAndEntries();
    PaintAll(hist);
-   RunDivScan(false);
    ApplyDivTradeExits();
    ApplyHdTradeEntries();
   }

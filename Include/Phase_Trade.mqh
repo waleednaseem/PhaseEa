@@ -31,10 +31,10 @@ struct SPhTradeState
    bool     armedSellLo;   // bear: 35-40 bounce-down
    bool     sawAbove65;    // bull: RSI was above 65 before pullback
    bool     sawBelow35;    // bear: RSI was below 35 before rally
-   bool     seqLocked;     // after SL / against Div+BOS: no entries until unlock
-   bool     againstDivLock; // lock came from against regular Div + BOS (realign window)
-   int      againstLockBars;// bars since against lock (1..5 realign window)
-   bool     realignArmed;   // touched regime bounce zone while against-locked
+   bool     seqLocked;     // DISABLED — always unlocked
+   bool     bosExitPending;// against Div+BOS: wait FVG/bounce rescue before CloseAll
+   int      bosExitBars;   // bars since against BOS arm
+   bool     realignArmed;   // DISABLED (legacy)
    datetime histFrom;
    // Brown FVG soft reject: arm on touch → fire on reject close
    bool     fvgPending;
@@ -45,7 +45,7 @@ struct SPhTradeState
    SPhFvg   fvgZone;
   };
 
-#define PH_REALIGN_MAX_BARS 5
+#define PH_BOS_EXIT_WAIT_BARS 5
 #define PH_SEQ_MARK_TAG     "PH_Seq"
 
 int    g_phTradeMarkRsiWin = -1;
@@ -78,49 +78,10 @@ void PhTrade_PaintSeqRect(const string name,const int subwindow,
    ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
   }
 
-// Yellow box on price + RSI at closed bar (shift=1) for LOCK / UNLOCK
+// LOCK/UNLOCK marks — DISABLED
 void PhTrade_PaintSeqMark(const bool isLock)
   {
-   const int shift = 1;
-   datetime t = iTime(_Symbol,_Period,shift);
-   if(t <= 0)
-      return;
-   int sec = PeriodSeconds(_Period);
-   if(sec <= 0)
-      sec = 60;
-   datetime t1 = t - sec / 3;
-   datetime t2 = t + sec / 3;
-   double hi = iHigh(_Symbol,_Period,shift);
-   double lo = iLow(_Symbol,_Period,shift);
-   if(hi <= 0.0 || lo <= 0.0)
-      return;
-
-   const color clr = clrYellow;
-   const string tag = isLock ? "Lk" : "Uk";
-   const string priceName = PH_SEQ_MARK_TAG + tag + "P_" + IntegerToString((long)t);
-   const string rsiName   = PH_SEQ_MARK_TAG + tag + "R_" + IntegerToString((long)t);
-   const string lblName   = PH_SEQ_MARK_TAG + tag + "T_" + IntegerToString((long)t);
-
-   PhTrade_PaintSeqRect(priceName,0,t1,hi,t2,lo,clr);
-
-   if(ObjectFind(0,lblName) < 0)
-      ObjectCreate(0,lblName,OBJ_TEXT,0,t,hi);
-   else
-      ObjectMove(0,lblName,0,t,hi);
-   ObjectSetString(0,lblName,OBJPROP_TEXT,isLock ? "LOCK" : "UNLOCK");
-   ObjectSetInteger(0,lblName,OBJPROP_COLOR,clr);
-   ObjectSetInteger(0,lblName,OBJPROP_FONTSIZE,8);
-   ObjectSetString(0,lblName,OBJPROP_FONT,"Arial");
-   ObjectSetInteger(0,lblName,OBJPROP_ANCHOR,ANCHOR_LEFT_LOWER);
-   ObjectSetInteger(0,lblName,OBJPROP_SELECTABLE,false);
-   ObjectSetInteger(0,lblName,OBJPROP_HIDDEN,true);
-
-   if(g_phTradeMarkRsiWin >= 0 && g_phTradeMarkRsi > 0.0 && g_phTradeMarkRsi <= 100.0)
-     {
-      const double pad = 2.0;
-      PhTrade_PaintSeqRect(rsiName,g_phTradeMarkRsiWin,t1,
-                           g_phTradeMarkRsi + pad,t2,g_phTradeMarkRsi - pad,clr);
-     }
+   // no-op: sequence lock/unlock removed
   }
 
 void PhTrade_CfgDefault(SPhTradeCfg &c)
@@ -146,8 +107,8 @@ void PhTrade_Init(SPhTradeState &st,const SPhTradeCfg &cfg)
    st.sawAbove65  = false;
    st.sawBelow35  = false;
    st.seqLocked   = false;
-   st.againstDivLock = false;
-   st.againstLockBars = 0;
+   st.bosExitPending = false;
+   st.bosExitBars = 0;
    st.realignArmed = false;
    st.histFrom    = TimeCurrent();
    st.fvgPending       = false;
@@ -170,37 +131,29 @@ void PhTrade_ResetArms(SPhTradeState &st)
 
 void PhTrade_ClearAgainstLock(SPhTradeState &st)
   {
-   st.againstDivLock  = false;
-   st.againstLockBars = 0;
-   st.realignArmed    = false;
+   st.bosExitPending = false;
+   st.bosExitBars    = 0;
+   st.realignArmed   = false;
   }
 
 void PhTrade_LockSeq(SPhTradeState &st)
   {
-   st.seqLocked = true;
+   // DISABLED — no sequence lock
+   st.seqLocked = false;
    PhTrade_ClearAgainstLock(st);
-   PhTrade_ResetArms(st);
-   PhTrade_PaintSeqMark(true);
   }
 
-// Against Div+BOS lock — OFF (CloseAll only; no seq lock / realign)
+// Against Div+BOS lock — OFF
 void PhTrade_LockAgainstDiv(SPhTradeState &st)
   {
    PhTrade_ClearAgainstLock(st);
-   // intentionally no seqLocked
   }
 
 void PhTrade_UnlockSeq(SPhTradeState &st)
   {
-   if(!st.seqLocked)
-     {
-      PhTrade_ClearAgainstLock(st);
-      return;
-     }
-   Print("Phase Trade: sequence UNLOCKED (helping HD/Div/FVG/realign)");
+   // DISABLED — no sequence unlock marks
    st.seqLocked = false;
    PhTrade_ClearAgainstLock(st);
-   PhTrade_PaintSeqMark(false);
   }
 
 void PhTrade_ClearFvgArm(SPhTradeState &st)
@@ -213,8 +166,24 @@ void PhTrade_ClearFvgArm(SPhTradeState &st)
 
 bool PhTrade_Open(SPhTradeState &st,const SPhTradeCfg &cfg,const ENUM_ORDER_TYPE type,
                   const string comment="PH_BNC");
+bool PhTrade_IsOurs(const ulong ticket,const long magic);
+int  PhTrade_CloseAllSoft(SPhTradeState &st,const SPhTradeCfg &cfg,const string why);
+double PhTrade_BasketFloat(const long magic);
 
-// Soft brown reject → unlock + exactly 1 regime-aligned entry (no CloseAll)
+int PhTrade_CountOurs(const long magic)
+  {
+   int n = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0 || !PhTrade_IsOurs(ticket,magic))
+         continue;
+      n++;
+     }
+   return(n);
+  }
+
+// Soft brown reject entry (no opens): 1× PH_FVG
 bool PhTrade_FireFvgReject(SPhTradeState &st,const SPhTradeCfg &cfg,
                            const bool isBuy,const datetime barTime)
   {
@@ -225,8 +194,9 @@ bool PhTrade_FireFvgReject(SPhTradeState &st,const SPhTradeCfg &cfg,
    if(st.fvgZone.valid && st.fvgZone.detectTime > 0 &&
       st.fvgLastDetect == st.fvgZone.detectTime && st.fvgLastFireBar > 0)
       return(false);
+   if(PhTrade_CountOurs(cfg.magic) > 0)
+      return(false); // open basket: FVG pe CloseAll nahi (survive regime)
 
-   PhTrade_UnlockSeq(st);
    ENUM_ORDER_TYPE typ = isBuy ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
    bool ok = PhTrade_Open(st,cfg,typ,"PH_FVG");
    if(ok)
@@ -241,26 +211,35 @@ bool PhTrade_FireFvgReject(SPhTradeState &st,const SPhTradeCfg &cfg,
    return(ok);
   }
 
-// Live shift=1: BUY=upper FVG from-below reject-down; SELL=lower from-above reject-up
+// Live shift=1: no opens → soft reject → PH_FVG entry
+// opens → FVG pe CloseAll nahi (CloseAllSoft gate alag: loss mein skip)
 void PhTrade_CheckFvgReject(SPhTradeState &st,const SPhTradeCfg &cfg,
                             const ENUM_PH_REGIME regime)
   {
    if(!cfg.enable)
       return;
-   if(regime != PH_BULLISH && regime != PH_BEARISH)
-     {
-      PhTrade_ClearFvgArm(st);
-      return;
-     }
 
    const int shift = 1;
    datetime barTime = iTime(_Symbol,_Period,shift);
    if(barTime <= 0)
       return;
 
+   // open positions: do not book/close on FVG — let regime/Div/SL manage
+   if(PhTrade_CountOurs(cfg.magic) > 0)
+     {
+      PhTrade_ClearFvgArm(st);
+      return;
+     }
+
+   if(regime != PH_BULLISH && regime != PH_BEARISH)
+     {
+      PhTrade_ClearFvgArm(st);
+      return;
+     }
+
    const bool isBuy = (regime == PH_BULLISH);
 
-   // --- pending: wait reject close outside ---
+   // --- pending: wait reject close outside (entry / unlock path) ---
    if(st.fvgPending && st.fvgZone.valid &&
       st.fvgTouchBar > 0 && barTime > st.fvgTouchBar)
      {
@@ -302,7 +281,7 @@ void PhTrade_CheckFvgReject(SPhTradeState &st,const SPhTradeCfg &cfg,
    if(st.fvgPending)
       return;
 
-   // --- arm on supporting brown touch ---
+   // --- arm on supporting brown touch (no opens → entry path) ---
    int sideFilter = isBuy ? 2 : 1;
    SPhFvg zone;
    datetime touchTime = 0;
@@ -361,7 +340,7 @@ void PhTrade_CheckFvgReject(SPhTradeState &st,const SPhTradeCfg &cfg,
 
 bool PhTrade_IsLocked(const SPhTradeState &st)
   {
-   return(st.seqLocked);
+   return(false); // sequence lock DISABLED
   }
 
 double PhTrade_PipSize()
@@ -429,55 +408,94 @@ bool PhTrade_InZone3540(const double rsi)
    return(rsi >= 35.0 && rsi <= 40.0);
   }
 
-// After against Div+BOS lock: within 5 bars, regime-align bounce → unlock
-// SELL: 60–65 bounce down | BUY: 35–40 bounce up
+// Regime-continue bounce / U-turn on closed bar (shift=1 RSI)
+bool PhTrade_HasBounceUturn(const bool isBuy,const double &rsi[])
+  {
+   if(ArraySize(rsi) < 3)
+      return(false);
+   const double r1 = rsi[1];
+   const double r2 = rsi[2];
+   if(isBuy)
+      return((PhTrade_InZone3540(r1) && r1 > r2) ||
+             (PhTrade_InZone6065(r1) && r1 > r2));
+   return((PhTrade_InZone6065(r1) && r1 < r2) ||
+          (PhTrade_InZone3540(r1) && r1 < r2));
+  }
+
+// Soft FVG reject that rescues after against-BOS:
+// BUY → lower FVG from-above reject-up | SELL → upper from-below reject-down
+bool PhTrade_HasFvgRescueReject(const SPhTradeCfg &cfg,const bool isBuy)
+  {
+   const int shift = 1;
+   datetime barTime = iTime(_Symbol,_Period,shift);
+   if(barTime <= 0)
+      return(false);
+
+   const int sideFilter = isBuy ? 1 : 2;
+   SPhFvg zone;
+   datetime touchTime = 0;
+   if(!PhFvg_FindBrownTouchAtShift(_Symbol,_Period,shift,
+                                   cfg.fvgLookback,cfg.fvgMinGapPts,sideFilter,
+                                   zone,touchTime))
+      return(false);
+
+   double c = iClose(_Symbol,_Period,shift);
+   double o = iOpen(_Symbol,_Period,shift);
+   double hi = iHigh(_Symbol,_Period,shift);
+   double lo = iLow(_Symbol,_Period,shift);
+   if(!PhFvg_BarTouchesZone(hi,lo,zone) &&
+      !(c < zone.gapBottom || c > zone.gapTop))
+      return(false);
+
+   double prevClose = iClose(_Symbol,_Period,shift + 1);
+   bool fromBelow = (prevClose < zone.gapBottom);
+   bool fromAbove = (prevClose > zone.gapTop);
+   // same-bar reject OR close already outside after touch this/prev
+   bool upperRejectDown = (c < zone.gapBottom);
+   bool lowerRejectUp   = (c > zone.gapTop);
+   bool softOk = (isBuy && lowerRejectUp && (fromAbove || PhFvg_BarTouchesZone(hi,lo,zone))) ||
+                 (!isBuy && upperRejectDown && (fromBelow || PhFvg_BarTouchesZone(hi,lo,zone)));
+   if(!softOk)
+      return(false);
+
+   bool thisBarFullUp = (c > zone.gapTop && o < zone.gapBottom);
+   bool thisBarFullDown = (c < zone.gapBottom && o > zone.gapTop);
+   if(thisBarFullUp || thisBarFullDown)
+      return(false);
+   if(PhFvg_WasCrossedBeforeShift(_Symbol,_Period,zone,shift))
+      return(false);
+   return(true);
+  }
+
+bool PhTrade_AgainstBosRescued(const SPhTradeCfg &cfg,const bool isBuy,
+                               const double &rsi[])
+  {
+   if(PhTrade_HasBounceUturn(isBuy,rsi))
+      return(true);
+   if(PhTrade_HasFvgRescueReject(cfg,isBuy))
+      return(true);
+   return(false);
+  }
+
+// Opposite Div / against Div+BOS → NEVER cut trades (continue).
+// Rescue wait removed — BOS spike pe cut nahi; regime/SL/stack alag handle.
+void PhTrade_PollAgainstBosExit(SPhTradeState &st,const SPhTradeCfg &cfg,
+                                const ENUM_PH_REGIME regime,const double &rsi[],
+                                const bool againstBosNow)
+  {
+   PhTrade_ClearAgainstLock(st);
+   if(!cfg.enable || !againstBosNow)
+      return;
+   if(regime != PH_BULLISH && regime != PH_BEARISH)
+      return;
+   Print("Phase Trade: against Div+BOS — no cut, trades continue");
+  }
+
+// Realign unlock — DISABLED (no sequence lock)
 void PhTrade_CheckRealignUnlock(SPhTradeState &st,const ENUM_PH_REGIME regime,
                                 const double &rsi[])
   {
-   if(!st.seqLocked || !st.againstDivLock)
-      return;
-   if(regime != PH_BULLISH && regime != PH_BEARISH)
-     {
-      PhTrade_ClearAgainstLock(st);
-      return;
-     }
-   if(ArraySize(rsi) < 3)
-      return;
-
-   st.againstLockBars++;
-   if(st.againstLockBars > PH_REALIGN_MAX_BARS)
-     {
-      // realign window closed — stay locked for HD / support Div+BOS / FVG
-      PhTrade_ClearAgainstLock(st);
-      return;
-     }
-
-   const double r1 = rsi[1];
-   const double r2 = rsi[2];
-   const int bars = st.againstLockBars;
-
-   if(regime == PH_BEARISH)
-     {
-      if(PhTrade_InZone6065(r1))
-         st.realignArmed = true;
-      if(st.realignArmed && r1 < r2)
-        {
-         PhTrade_UnlockSeq(st);
-         Print("Phase Trade: UNLOCK realign SELL bounce 60-65 bar=",bars,
-               " rsi=",DoubleToString(r1,2));
-        }
-     }
-   else // PH_BULLISH
-     {
-      if(PhTrade_InZone3540(r1))
-         st.realignArmed = true;
-      if(st.realignArmed && r1 > r2)
-        {
-         PhTrade_UnlockSeq(st);
-         Print("Phase Trade: UNLOCK realign BUY bounce 35-40 bar=",bars,
-               " rsi=",DoubleToString(r1,2));
-        }
-     }
+   PhTrade_ClearAgainstLock(st);
   }
 
 bool PhTrade_IsOurs(const ulong ticket,const long magic)
@@ -615,6 +633,19 @@ bool PhTrade_CloseTicket(const ulong ticket,const SPhTradeCfg &cfg)
    return(PhTrade_Send(req,res));
   }
 
+double PhTrade_BasketFloat(const long magic)
+  {
+   double sum = 0.0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0 || !PhTrade_IsOurs(ticket,magic))
+         continue;
+      sum += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+     }
+   return(sum);
+  }
+
 int PhTrade_CloseAll(SPhTradeState &st,const SPhTradeCfg &cfg)
   {
    if(!cfg.enable)
@@ -631,6 +662,21 @@ int PhTrade_CloseAll(SPhTradeState &st,const SPhTradeCfg &cfg)
          Print("Phase Trade: CloseAll fail ticket=",ticket," err=",GetLastError());
      }
    return(closed);
+  }
+
+// Soft CloseAll: skip while basket float < 0 (e.g. sells below, FVG/SL zone above)
+int PhTrade_CloseAllSoft(SPhTradeState &st,const SPhTradeCfg &cfg,const string why)
+  {
+   if(!cfg.enable)
+      return(0);
+   double fl = PhTrade_BasketFloat(cfg.magic);
+   if(fl < 0.0)
+     {
+      Print("Phase Trade: skip CloseAll [",why,"] float=",
+            DoubleToString(fl,2)," — wait until plus");
+      return(0);
+     }
+   return(PhTrade_CloseAll(st,cfg));
   }
 
 int PhTrade_CloseByType(SPhTradeState &st,const SPhTradeCfg &cfg,const ENUM_POSITION_TYPE ptype)
@@ -653,66 +699,10 @@ int PhTrade_CloseByType(SPhTradeState &st,const SPhTradeCfg &cfg,const ENUM_POSI
    return(closed);
   }
 
-// Focus starts at ≥4 opens: n==4 → last 1; n>4 → last 2.
-// If ALL focused floating P/L < 0 → CloseAll, stay UNLOCKED (buy+sell same).
+// Stack-loss CloseAll — DISABLED (BOS/against-spike pe false cut)
 bool PhTrade_PollStackLossClose(SPhTradeState &st,const SPhTradeCfg &cfg)
   {
-   if(!cfg.enable)
-      return(false);
-
-   ulong    tickets[];
-   datetime times[];
-   double   profits[];
-   int n = 0;
-
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-     {
-      ulong ticket = PositionGetTicket(i);
-      if(ticket == 0 || !PhTrade_IsOurs(ticket,cfg.magic))
-         continue;
-      int m = n + 1;
-      ArrayResize(tickets,m);
-      ArrayResize(times,m);
-      ArrayResize(profits,m);
-      tickets[n] = ticket;
-      times[n]   = (datetime)PositionGetInteger(POSITION_TIME);
-      profits[n] = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
-      n++;
-     }
-
-   if(n < 4)
-      return(false);
-
-   // newest first
-   for(int a = 0; a < n - 1; a++)
-     {
-      for(int b = a + 1; b < n; b++)
-        {
-         if(times[b] > times[a] ||
-            (times[b] == times[a] && tickets[b] > tickets[a]))
-           {
-            ulong tu = tickets[a]; tickets[a] = tickets[b]; tickets[b] = tu;
-            datetime td = times[a]; times[a] = times[b]; times[b] = td;
-            double pd = profits[a]; profits[a] = profits[b]; profits[b] = pd;
-           }
-        }
-     }
-
-   // n==4 → last 1; n>4 → last 2
-   const int focus = (n == 4) ? 1 : 2;
-   for(int k = 0; k < focus; k++)
-     {
-      if(profits[k] >= 0.0)
-         return(false);
-     }
-
-   int nClose = PhTrade_CloseAll(st,cfg);
-   // stay unlocked — never LockSeq here
-   if(PhTrade_IsLocked(st))
-      PhTrade_UnlockSeq(st);
-   Print("Phase Trade: stack loss focus=",focus," of ",n,
-         " → CloseAll n=",nClose," (stay UNLOCKED)");
-   return(true);
+   return(false);
   }
 
 bool PhTrade_PollSlLock(SPhTradeState &st,const SPhTradeCfg &cfg)
@@ -757,9 +747,8 @@ bool PhTrade_PollSlLock(SPhTradeState &st,const SPhTradeCfg &cfg)
    if(!slHit)
       return(false);
 
-   int nClose = PhTrade_CloseAll(st,cfg);
-   PhTrade_LockSeq(st);
-   Print("Phase Trade: SL hit → CloseAll n=",nClose," SEQUENCE LOCKED (wait HD/Div)");
+   // SL cascade CloseAll — DISABLED (sirf broker us ticket band kare; baqi continue)
+   Print("Phase Trade: SL hit noted — no CloseAll cascade (trades continue)");
    return(true);
   }
 
@@ -768,11 +757,6 @@ void PhTrade_CheckBounce(SPhTradeState &st,const SPhTradeCfg &cfg,
   {
    if(!cfg.enable)
       return;
-   if(st.seqLocked)
-     {
-      PhTrade_ResetArms(st);
-      return;
-     }
    if(ArraySize(rsi) < 3)
       return;
 
