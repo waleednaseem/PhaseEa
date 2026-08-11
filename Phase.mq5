@@ -453,6 +453,7 @@ void OnTick()
       if(ArraySize(g_rsi) > 1)
          PhTrade_SetMarkContext(g_rsiWindow,g_rsi[1]);
       PhTrade_PollStackLossClose(g_trade,g_tradeCfg);
+      PhTrade_PollProfitHalfClose(g_trade,g_tradeCfg);
       PhTrade_PollSlLock(g_trade,g_tradeCfg);
      }
 
@@ -469,6 +470,7 @@ void OnTimer()
       if(ArraySize(g_rsi) > 1)
          PhTrade_SetMarkContext(g_rsiWindow,g_rsi[1]);
       PhTrade_PollStackLossClose(g_trade,g_tradeCfg);
+      PhTrade_PollProfitHalfClose(g_trade,g_tradeCfg);
       PhTrade_PollSlLock(g_trade,g_tradeCfg);
      }
    if(InpShowBackground) PhResizeBg();

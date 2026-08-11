@@ -705,6 +705,31 @@ bool PhTrade_PollStackLossClose(SPhTradeState &st,const SPhTradeCfg &cfg)
    return(false);
   }
 
+// Floating P/L ≥ ±5% of balance → hard CloseAll
+bool PhTrade_PollProfitHalfClose(SPhTradeState &st,const SPhTradeCfg &cfg)
+  {
+   if(!cfg.enable)
+      return(false);
+   if(PhTrade_CountOurs(cfg.magic) <= 0)
+      return(false);
+
+   double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+   if(bal <= 0.0)
+      return(false);
+
+   double fl = PhTrade_BasketFloat(cfg.magic);
+   const double need = bal * 0.05;
+   if(fl < need && fl > -need)
+      return(false);
+
+   int n = PhTrade_CloseAll(st,cfg);
+   Print("Phase Trade: ",(fl >= need ? "profit≥5%" : "loss≥5%"),
+         " balance → CloseAll n=",n,
+         " float=",DoubleToString(fl,2)," bal=",DoubleToString(bal,2),
+         " band=±",DoubleToString(need,2));
+   return(n > 0);
+  }
+
 bool PhTrade_PollSlLock(SPhTradeState &st,const SPhTradeCfg &cfg)
   {
    if(!cfg.enable)
