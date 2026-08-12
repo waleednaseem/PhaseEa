@@ -12,15 +12,15 @@ void PhBuy_TrackFloor(SPhWalk &w,const SPhConfig &cfg,const double v,const doubl
   }
 
 // leave BUY → SELL
-bool PhBuy_Process(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
+bool PhBuy_Process(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder,
+                   const bool canFlip)
   {
-   return(PhStay_SellConfirm(w,cfg,v,vOlder));
+   return(PhStay_SellConfirm(w,cfg,v,vOlder,canFlip));
   }
 
-// NEUTRAL → BUY
 bool PhBuy_TryEnter(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
   {
-   return(PhStay_BuyConfirm(w,cfg,v,vOlder));
+   return(PhStay_BuyConfirm(w,cfg,v,vOlder,true));
   }
 
 #endif

@@ -21,6 +21,8 @@ struct SPhTradeCfg
    int    fvgLookback;
    int    fvgMinGapPts;
    int    fvgMaxPts;
+   double bookBaseBal;   // 0 = auto today's balance
+   double bookProfitPct; // CloseAll when float ≥ this % of bookBaseBal
   };
 
 struct SPhTradeState
@@ -96,6 +98,8 @@ void PhTrade_CfgDefault(SPhTradeCfg &c)
    c.fvgLookback  = 500;
    c.fvgMinGapPts = 10;
    c.fvgMaxPts    = 1500;
+   c.bookBaseBal  = 0.0;
+   c.bookProfitPct = 5.0;
   }
 
 void PhTrade_Init(SPhTradeState &st,const SPhTradeCfg &cfg)
@@ -705,7 +709,7 @@ bool PhTrade_PollStackLossClose(SPhTradeState &st,const SPhTradeCfg &cfg)
    return(false);
   }
 
-// Floating P/L ≥ ±5% of balance → hard CloseAll
+// Floating profit ≥ bookProfitPct of bookBaseBal → CloseAll
 bool PhTrade_PollProfitHalfClose(SPhTradeState &st,const SPhTradeCfg &cfg)
   {
    if(!cfg.enable)
@@ -713,20 +717,22 @@ bool PhTrade_PollProfitHalfClose(SPhTradeState &st,const SPhTradeCfg &cfg)
    if(PhTrade_CountOurs(cfg.magic) <= 0)
       return(false);
 
-   double bal = AccountInfoDouble(ACCOUNT_BALANCE);
-   if(bal <= 0.0)
+   double base = cfg.bookBaseBal;
+   if(base <= 0.0)
+      base = AccountInfoDouble(ACCOUNT_BALANCE);
+   if(base <= 0.0)
       return(false);
 
    double fl = PhTrade_BasketFloat(cfg.magic);
-   const double need = bal * 0.05;
-   if(fl < need && fl > -need)
+   const double pct = (cfg.bookProfitPct > 0.0 ? cfg.bookProfitPct : 5.0);
+   const double need = base * (pct / 100.0);
+   if(fl < need)
       return(false);
 
    int n = PhTrade_CloseAll(st,cfg);
-   Print("Phase Trade: ",(fl >= need ? "profit≥5%" : "loss≥5%"),
-         " balance → CloseAll n=",n,
-         " float=",DoubleToString(fl,2)," bal=",DoubleToString(bal,2),
-         " band=±",DoubleToString(need,2));
+   Print("Phase Trade: profit≥",DoubleToString(pct,1),"% of base ",
+         DoubleToString(base,2)," → CloseAll n=",n,
+         " float=",DoubleToString(fl,2)," need≥",DoubleToString(need,2));
    return(n > 0);
   }
 

@@ -76,6 +76,8 @@ input long               InpTradeMagic      = 140001;
 input int                InpTradeDeviation  = 30;
 input bool               InpShowPriceSR     = true;  // last-100 price S&R lines
 input int                InpPriceSRBars     = 100;
+input double             InpBookBaseBal     = 0;     // 0 = auto aaj ka balance (changeable)
+input double             InpBookProfitPct   = 5.0;   // CloseAll when float ≥ this % of InpBookBaseBal
 
 input group "=== FVG ==="
 input bool               InpShowFvg             = true;
@@ -163,6 +165,15 @@ void LoadConfig()
    g_tradeCfg.deviation = InpTradeDeviation;
    g_tradeCfg.fvgLookback  = InpFvgLookbackBars;
    g_tradeCfg.fvgMinGapPts = InpFvgMinGapPoints;
+   g_tradeCfg.bookProfitPct = InpBookProfitPct;
+   if(InpBookBaseBal > 0.0)
+      g_tradeCfg.bookBaseBal = InpBookBaseBal;
+   else
+     {
+      g_tradeCfg.bookBaseBal = AccountInfoDouble(ACCOUNT_BALANCE);
+      Print("Phase Trade: BookBaseBal auto=",DoubleToString(g_tradeCfg.bookBaseBal,2),
+            " (aaj ka balance). Inputs mein change kar sakte ho.");
+     }
   }
 
 void AttachPhaseRsi()
@@ -233,6 +244,19 @@ void ApplyTradeExitsAndEntries()
       PhTrade_ClearFvgArm(g_trade);
       PhPriceSR_ClearArm(g_priceSR);
       PhTrade_ClearAgainstLock(g_trade);
+      if(PhTrade_IsLocked(g_trade))
+         PhTrade_UnlockSeq(g_trade);
+      // Red/green SELL/BUY arrow = regime start — same bar pe entry
+      if(cur == PH_BEARISH)
+        {
+         if(PhTrade_Open(g_trade,g_tradeCfg,ORDER_TYPE_SELL,"PH_REG"))
+            Print("Phase Trade: SELL on new sell-regime");
+        }
+      else if(cur == PH_BULLISH)
+        {
+         if(PhTrade_Open(g_trade,g_tradeCfg,ORDER_TYPE_BUY,"PH_REG"))
+            Print("Phase Trade: BUY on new buy-regime");
+        }
      }
    PhTrade_CheckBounce(g_trade,g_tradeCfg,cur,g_rsi);
    PhPriceSR_Scan(g_priceSR,g_rsi,g_times,g_rsiWindow,InpPriceSRBars,2,InpShowPriceSR);

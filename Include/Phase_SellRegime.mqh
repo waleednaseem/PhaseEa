@@ -12,15 +12,15 @@ void PhSell_TrackCap(SPhWalk &w,const SPhConfig &cfg,const double v)
   }
 
 // leave SELL → BUY
-bool PhSell_Process(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
+bool PhSell_Process(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder,
+                    const bool canFlip)
   {
-   return(PhStay_BuyConfirm(w,cfg,v,vOlder));
+   return(PhStay_BuyConfirm(w,cfg,v,vOlder,canFlip));
   }
 
-// NEUTRAL → SELL
 bool PhSell_TryEnter(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
   {
-   return(PhStay_SellConfirm(w,cfg,v,vOlder));
+   return(PhStay_SellConfirm(w,cfg,v,vOlder,true));
   }
 
 #endif

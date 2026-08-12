@@ -53,6 +53,8 @@ void PhEnterBull(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &tim
    PhWalkClearInvBreak(w);
    PhWalkClearInv(w); // S&R/INV disabled
    PhWalkClearZoneStay(w);
+   Print("Phase Regime: BUY rsi=",DoubleToString(rsi[shift],2),
+         " @ ",TimeToString(times[shift]));
   }
 
 void PhEnterBear(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &times[],
@@ -90,13 +92,13 @@ void PhRegimeStep(SPhWalk &w,SPhSRList &L,
    if(w.state == PH_BULLISH)
      {
       w.barsInRegime++;
-      if(w.barsInRegime > lockBars && PhBuy_Process(w,cfg,v,vOlder))
+      if(PhBuy_Process(w,cfg,v,vOlder,w.barsInRegime > lockBars))
          PhEnterBear(w,L,rsi,times,shift,hist,cfg);
      }
    else if(w.state == PH_BEARISH)
      {
       w.barsInRegime++;
-      if(w.barsInRegime > lockBars && PhSell_Process(w,cfg,v,vOlder))
+      if(PhSell_Process(w,cfg,v,vOlder,w.barsInRegime > lockBars))
          PhEnterBull(w,L,rsi,times,shift,hist,cfg);
      }
    else

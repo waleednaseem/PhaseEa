@@ -221,24 +221,15 @@ bool PhStay_In3540(const SPhConfig &cfg,const double v)
    return(v > lo && v <= hi + 1e-9);
   }
 
-// Cross 65 up OR already >65 → arm; confirm ONLY on bounce (no park-only)
-bool PhStay_BuyConfirm(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
+// Cross 65 up → arm.
+// BUY flip ONLY if RSI reclaims 65 after 60-65 pullback (60-65 tick ≠ BUY).
+bool PhStay_BuyConfirm(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder,
+                       const bool canFlip)
   {
    const double lvl65 = cfg.bearCap + cfg.tol;
    const double lvl60 = cfg.bearCapLo - cfg.tol;
 
-   // fresh cross up
    if(vOlder < lvl65 && v + 1e-9 >= lvl65)
-     {
-      w.zBuyArmed    = true;
-      w.zBuyAge      = 1;
-      w.zBuyRetest   = false;
-      w.zBuyPullback = false;
-      return(false);
-     }
-
-   // already in zone → seed arm (still needs bounce to confirm)
-   if(!w.zBuyArmed && PhStay_Above65(cfg,v))
      {
       w.zBuyArmed    = true;
       w.zBuyAge      = 1;
@@ -250,7 +241,6 @@ bool PhStay_BuyConfirm(SPhWalk &w,const SPhConfig &cfg,const double v,const doub
    if(!w.zBuyArmed)
       return(false);
 
-   // back below 60 → fake spike, cancel
    if(v < lvl60)
      {
       PhWalkClearZoneBuy(w);
@@ -261,31 +251,38 @@ bool PhStay_BuyConfirm(SPhWalk &w,const SPhConfig &cfg,const double v,const doub
 
    if(PhStay_In6065(cfg,v))
       w.zBuyRetest = true;
+   // pullback = dipped while still above 65 (real u-turn), not any down tick
    if(PhStay_Above65(cfg,v) && v < vOlder)
       w.zBuyPullback = true;
 
-   // Path A: 60-65 retest then bounce up
-   if(w.zBuyRetest && v > vOlder && v + 1e-9 >= lvl60)
-     {
-      PhWalkClearZoneBuy(w);
-      return(true);
-     }
-   // Path B: stayed up, small u-turn then bounce up
-   if(w.zBuyPullback && PhStay_Above65(cfg,v) && v > vOlder)
-     {
-      PhWalkClearZoneBuy(w);
-      return(true);
-     }
-   // no park-only — spike without bounce = no BUY
-   return(false);
+   if(w.zBuyAge < 5)
+      return(false);
+
+   bool want = false;
+   // Path A: visited 60-65, then bounce BACK above 65 (reclaim)
+   if(w.zBuyRetest && PhStay_Above65(cfg,v) && v > vOlder)
+      want = true;
+   // Path B: never left 65, small u-turn then bounce up (still >65)
+   else if(!w.zBuyRetest && w.zBuyPullback && PhStay_Above65(cfg,v) && v > vOlder)
+      want = true;
+
+   if(!want)
+      return(false);
+   if(!canFlip)
+      return(false);
+
+   PhWalkClearZoneBuy(w);
+   return(true);
   }
 
-// Cross 35 down OR already <35 → arm; confirm ONLY on bounce (no park-only)
-bool PhStay_SellConfirm(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
+// MUST cross 35 first; then 35-40 bounce-down OR u-turn below 35. No predict before cross.
+bool PhStay_SellConfirm(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder,
+                        const bool canFlip)
   {
    const double lvl35 = cfg.bullHard - cfg.tol;
    const double lvl40 = cfg.bullFloor + cfg.tol;
 
+   // arm only on real 35 cross (not 40 touch / not already-in-zone)
    if(vOlder > lvl35 && v <= lvl35 + 1e-9)
      {
       w.zSellArmed    = true;
@@ -307,7 +304,6 @@ bool PhStay_SellConfirm(SPhWalk &w,const SPhConfig &cfg,const double v,const dou
    if(!w.zSellArmed)
       return(false);
 
-   // above 40 → fake spike, cancel
    if(v > lvl40)
      {
       PhWalkClearZoneSell(w);
@@ -321,19 +317,22 @@ bool PhStay_SellConfirm(SPhWalk &w,const SPhConfig &cfg,const double v,const dou
    if(PhStay_Below35(cfg,v) && v > vOlder)
       w.zSellPullback = true;
 
-   // Path A: 35-40 retest then bounce down
+   // Path A: 35-40 retest then bounce DOWN (zone crossed pehle, phir reject)
    if(w.zSellRetest && v < vOlder && v <= lvl40 + 1e-9)
      {
+      if(!canFlip)
+         return(false);
       PhWalkClearZoneSell(w);
       return(true);
      }
-   // Path B: stayed down, small u-turn then continue down
+   // Path B: below 35, small u-turn then continue down
    if(w.zSellPullback && PhStay_Below35(cfg,v) && v < vOlder)
      {
+      if(!canFlip)
+         return(false);
       PhWalkClearZoneSell(w);
       return(true);
      }
-   // no park-only — spike without bounce = no SELL
    return(false);
   }
 
