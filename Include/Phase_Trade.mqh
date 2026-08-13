@@ -21,8 +21,10 @@ struct SPhTradeCfg
    int    fvgLookback;
    int    fvgMinGapPts;
    int    fvgMaxPts;
-   double bookBaseBal;   // 0 = auto today's balance
+   double bookBaseBal;   // user-set; 0 = profit-book off
    double bookProfitPct; // CloseAll when float ≥ this % of bookBaseBal
+   double dailyProfitPct; // +this % of bookBaseBal today → stop until next day
+   double dailyLossPct;   // -this % of bookBaseBal today → stop until next day
   };
 
 struct SPhTradeState
@@ -45,6 +47,9 @@ struct SPhTradeState
    datetime fvgLastFireBar;
    datetime fvgLastDetect;
    SPhFvg   fvgZone;
+   datetime dayStamp;    // server day 00:00
+   double   dayStartEq;  // equity at day start
+   bool     dayStopped;  // daily target hit — no trades until next day
   };
 
 #define PH_BOS_EXIT_WAIT_BARS 5
@@ -100,6 +105,8 @@ void PhTrade_CfgDefault(SPhTradeCfg &c)
    c.fvgMaxPts    = 1500;
    c.bookBaseBal  = 0.0;
    c.bookProfitPct = 5.0;
+   c.dailyProfitPct = 10.0;
+   c.dailyLossPct   = 10.0;
   }
 
 void PhTrade_Init(SPhTradeState &st,const SPhTradeCfg &cfg)
@@ -121,6 +128,9 @@ void PhTrade_Init(SPhTradeState &st,const SPhTradeCfg &cfg)
    st.fvgLastFireBar   = 0;
    st.fvgLastDetect    = 0;
    st.fvgZone.valid    = false;
+   st.dayStamp    = 0;
+   st.dayStartEq  = 0.0;
+   st.dayStopped  = false;
   }
 
 void PhTrade_ResetArms(SPhTradeState &st)
@@ -561,6 +571,8 @@ bool PhTrade_Open(SPhTradeState &st,const SPhTradeCfg &cfg,const ENUM_ORDER_TYPE
   {
    if(!cfg.enable)
       return(false);
+   if(st.dayStopped)
+      return(false);
    if(st.seqLocked)
       return(false);
 
@@ -719,8 +731,6 @@ bool PhTrade_PollProfitHalfClose(SPhTradeState &st,const SPhTradeCfg &cfg)
 
    double base = cfg.bookBaseBal;
    if(base <= 0.0)
-      base = AccountInfoDouble(ACCOUNT_BALANCE);
-   if(base <= 0.0)
       return(false);
 
    double fl = PhTrade_BasketFloat(cfg.magic);
@@ -734,6 +744,63 @@ bool PhTrade_PollProfitHalfClose(SPhTradeState &st,const SPhTradeCfg &cfg)
          DoubleToString(base,2)," → CloseAll n=",n,
          " float=",DoubleToString(fl,2)," need≥",DoubleToString(need,2));
    return(n > 0);
+  }
+
+datetime PhTrade_DayStamp(const datetime t)
+  {
+   MqlDateTime dt;
+   TimeToStruct(t,dt);
+   dt.hour = 0;
+   dt.min  = 0;
+   dt.sec  = 0;
+   return(StructToTime(dt));
+  }
+
+// Today's P/L vs ±% of InpBookBaseBal (not live balance) → CloseAll + stop until next day
+bool PhTrade_PollDailyTarget(SPhTradeState &st,const SPhTradeCfg &cfg)
+  {
+   if(!cfg.enable)
+      return(false);
+   if(cfg.bookBaseBal <= 0.0)
+      return(false);
+   if(cfg.dailyProfitPct <= 0.0 && cfg.dailyLossPct <= 0.0)
+      return(false);
+
+   datetime day = PhTrade_DayStamp(TimeCurrent());
+   if(day <= 0)
+      return(false);
+
+   if(st.dayStamp != day)
+     {
+      st.dayStamp   = day;
+      st.dayStartEq = AccountInfoDouble(ACCOUNT_EQUITY);
+      st.dayStopped = false;
+      Print("Phase Trade: new day start eq=",DoubleToString(st.dayStartEq,2),
+            " book=",DoubleToString(cfg.bookBaseBal,2),
+            " +",DoubleToString(cfg.dailyProfitPct,1),"% / -",
+            DoubleToString(cfg.dailyLossPct,1),"% of book");
+     }
+
+   if(st.dayStopped)
+      return(false);
+   if(st.dayStartEq <= 0.0)
+      return(false);
+
+   const double pnl = AccountInfoDouble(ACCOUNT_EQUITY) - st.dayStartEq;
+   const double profitNeed = cfg.bookBaseBal * (cfg.dailyProfitPct / 100.0);
+   const double lossNeed   = cfg.bookBaseBal * (cfg.dailyLossPct / 100.0);
+   bool hitProfit = (cfg.dailyProfitPct > 0.0 && pnl + 1e-8 >= profitNeed);
+   bool hitLoss   = (cfg.dailyLossPct > 0.0 && pnl - 1e-8 <= -lossNeed);
+   if(!hitProfit && !hitLoss)
+      return(false);
+
+   int n = PhTrade_CloseAll(st,cfg);
+   st.dayStopped = true;
+   PhTrade_ResetArms(st);
+   Print("Phase Trade: daily ",(hitLoss ? "LOSS" : "PROFIT"),
+         " stop pnl=",DoubleToString(pnl,2)," book=",DoubleToString(cfg.bookBaseBal,2),
+         " → CloseAll n=",n," STOP until next day");
+   return(true);
   }
 
 bool PhTrade_PollSlLock(SPhTradeState &st,const SPhTradeCfg &cfg)

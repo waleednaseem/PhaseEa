@@ -1,6 +1,7 @@
 # Phase — Progress
 
 ## Done
+- Daily ±10% of `InpBookBaseBal` (not live balance) → CloseAll + stop until next day
 - Regime freeze (ignite-once) + S&R + Phase dash/LOSS
 - v1.39: Div + HD + Div-related BOS/INV (Future2EA port)
 - v1.41: bounce trades, regime CloseAll, Div side CloseAll, SL lock + HD unlock/entry

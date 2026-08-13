@@ -14,6 +14,7 @@ RSI regime EA: visual + live bounce trades (v1.47).
 - Price Div / BOS lines do **not** flip regime
 
 ## Trade (v1.47)
+- **Daily stop:** ±% of `InpBookBaseBal` (not live balance). Today’s P/L vs book → CloseAll + no entries until next day. `InpDailyProfitPct` / `InpDailyLossPct` default 10/10; book `0` = off
 - BUY regime: bounce 35–40 / 50; **also** 60–65 pullback then bounce up (≥60) → buy
 - SELL regime: bounce 60–65 / 50; **also** 35–40 bounce-down → sell
 - Extra RSI S&R: last 100 bars RSI swing H/L — support **<35** / resist **>65** only; scan even if RSI window missing (draw optional); arm on touch → fire on bounce/reject (`Phase_PriceSR.mqh`)

@@ -76,8 +76,10 @@ input long               InpTradeMagic      = 140001;
 input int                InpTradeDeviation  = 30;
 input bool               InpShowPriceSR     = true;  // last-100 price S&R lines
 input int                InpPriceSRBars     = 100;
-input double             InpBookBaseBal     = 0;     // 0 = auto aaj ka balance (changeable)
+input double             InpBookBaseBal     = 10000;     // book size (0 = profit-book + daily stop off)
 input double             InpBookProfitPct   = 5.0;   // CloseAll when float ≥ this % of InpBookBaseBal
+input double             InpDailyProfitPct  = 10.0;  // today +this % of book → stop until next day (0=off)
+input double             InpDailyLossPct    = 10.0;  // today -this % of book → stop until next day (0=off)
 
 input group "=== FVG ==="
 input bool               InpShowFvg             = true;
@@ -165,15 +167,10 @@ void LoadConfig()
    g_tradeCfg.deviation = InpTradeDeviation;
    g_tradeCfg.fvgLookback  = InpFvgLookbackBars;
    g_tradeCfg.fvgMinGapPts = InpFvgMinGapPoints;
-   g_tradeCfg.bookProfitPct = InpBookProfitPct;
-   if(InpBookBaseBal > 0.0)
-      g_tradeCfg.bookBaseBal = InpBookBaseBal;
-   else
-     {
-      g_tradeCfg.bookBaseBal = AccountInfoDouble(ACCOUNT_BALANCE);
-      Print("Phase Trade: BookBaseBal auto=",DoubleToString(g_tradeCfg.bookBaseBal,2),
-            " (aaj ka balance). Inputs mein change kar sakte ho.");
-     }
+   g_tradeCfg.bookProfitPct  = InpBookProfitPct;
+   g_tradeCfg.bookBaseBal    = InpBookBaseBal;
+   g_tradeCfg.dailyProfitPct = InpDailyProfitPct;
+   g_tradeCfg.dailyLossPct   = InpDailyLossPct;
   }
 
 void AttachPhaseRsi()
@@ -478,6 +475,7 @@ void OnTick()
          PhTrade_SetMarkContext(g_rsiWindow,g_rsi[1]);
       PhTrade_PollStackLossClose(g_trade,g_tradeCfg);
       PhTrade_PollProfitHalfClose(g_trade,g_tradeCfg);
+      PhTrade_PollDailyTarget(g_trade,g_tradeCfg);
       PhTrade_PollSlLock(g_trade,g_tradeCfg);
      }
 
@@ -485,6 +483,8 @@ void OnTick()
    if(t == 0 || t == g_lastBar) return;
    g_lastBar = t;
    AdvanceBar();
+   if(InpEnableTrade)
+      PhTrade_PollDailyTarget(g_trade,g_tradeCfg);
   }
 
 void OnTimer()
@@ -495,6 +495,7 @@ void OnTimer()
          PhTrade_SetMarkContext(g_rsiWindow,g_rsi[1]);
       PhTrade_PollStackLossClose(g_trade,g_tradeCfg);
       PhTrade_PollProfitHalfClose(g_trade,g_tradeCfg);
+      PhTrade_PollDailyTarget(g_trade,g_tradeCfg);
       PhTrade_PollSlLock(g_trade,g_tradeCfg);
      }
    if(InpShowBackground) PhResizeBg();
