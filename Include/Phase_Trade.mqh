@@ -21,10 +21,12 @@ struct SPhTradeCfg
    int    fvgLookback;
    int    fvgMinGapPts;
    int    fvgMaxPts;
-   double bookBaseBal;   // user-set; 0 = profit-book off
-   double bookProfitPct; // CloseAll when float ≥ this % of bookBaseBal
-   double dailyProfitPct; // +this % of bookBaseBal today → stop until next day
-   double dailyLossPct;   // -this % of bookBaseBal today → stop until next day
+   double bookBaseBal;        // unused (auto day equity)
+   double bookProfitPct;      // CloseAll when float ≥ this % of day-start equity
+   double bookProfitPctTight; // after +bookTightenAtPct vs run start
+   double bookTightenAtPct;   // overall +this % → switch book % to tight
+   double dailyProfitPct;     // +this % of day-start equity → stop until next day
+   double dailyLossPct;       // -this % of day-start equity → stop until next day
   };
 
 struct SPhTradeState
@@ -48,7 +50,9 @@ struct SPhTradeState
    datetime fvgLastDetect;
    SPhFvg   fvgZone;
    datetime dayStamp;    // server day 00:00
-   double   dayStartEq;  // equity at day start
+   double   dayStartEq;  // equity auto-picked at day start
+   double   runStartEq;  // first auto equity (15% tighten vs this)
+   bool     bookTight;   // latched after +bookTightenAtPct
    bool     dayStopped;  // daily target hit — no trades until next day
   };
 
@@ -103,10 +107,12 @@ void PhTrade_CfgDefault(SPhTradeCfg &c)
    c.fvgLookback  = 500;
    c.fvgMinGapPts = 10;
    c.fvgMaxPts    = 1500;
-   c.bookBaseBal  = 0.0;
-   c.bookProfitPct = 5.0;
-   c.dailyProfitPct = 10.0;
-   c.dailyLossPct   = 10.0;
+   c.bookBaseBal        = 0.0;
+   c.bookProfitPct      = 5.0;
+   c.bookProfitPctTight = 2.0;
+   c.bookTightenAtPct   = 15.0;
+   c.dailyProfitPct     = 10.0;
+   c.dailyLossPct       = 10.0;
   }
 
 void PhTrade_Init(SPhTradeState &st,const SPhTradeCfg &cfg)
@@ -130,6 +136,8 @@ void PhTrade_Init(SPhTradeState &st,const SPhTradeCfg &cfg)
    st.fvgZone.valid    = false;
    st.dayStamp    = 0;
    st.dayStartEq  = 0.0;
+   st.runStartEq  = 0.0;
+   st.bookTight   = false;
    st.dayStopped  = false;
   }
 
@@ -721,31 +729,6 @@ bool PhTrade_PollStackLossClose(SPhTradeState &st,const SPhTradeCfg &cfg)
    return(false);
   }
 
-// Floating profit ≥ bookProfitPct of bookBaseBal → CloseAll
-bool PhTrade_PollProfitHalfClose(SPhTradeState &st,const SPhTradeCfg &cfg)
-  {
-   if(!cfg.enable)
-      return(false);
-   if(PhTrade_CountOurs(cfg.magic) <= 0)
-      return(false);
-
-   double base = cfg.bookBaseBal;
-   if(base <= 0.0)
-      return(false);
-
-   double fl = PhTrade_BasketFloat(cfg.magic);
-   const double pct = (cfg.bookProfitPct > 0.0 ? cfg.bookProfitPct : 5.0);
-   const double need = base * (pct / 100.0);
-   if(fl < need)
-      return(false);
-
-   int n = PhTrade_CloseAll(st,cfg);
-   Print("Phase Trade: profit≥",DoubleToString(pct,1),"% of base ",
-         DoubleToString(base,2)," → CloseAll n=",n,
-         " float=",DoubleToString(fl,2)," need≥",DoubleToString(need,2));
-   return(n > 0);
-  }
-
 datetime PhTrade_DayStamp(const datetime t)
   {
    MqlDateTime dt;
@@ -756,39 +739,87 @@ datetime PhTrade_DayStamp(const datetime t)
    return(StructToTime(dt));
   }
 
-// Today's P/L vs ±% of InpBookBaseBal (not live balance) → CloseAll + stop until next day
+void PhTrade_RollDay(SPhTradeState &st,const SPhTradeCfg &cfg)
+  {
+   datetime day = PhTrade_DayStamp(TimeCurrent());
+   if(day <= 0)
+      return;
+   if(st.dayStamp == day)
+      return;
+
+   st.dayStamp   = day;
+   st.dayStartEq = AccountInfoDouble(ACCOUNT_EQUITY);
+   st.dayStopped = false;
+   if(st.runStartEq <= 0.0)
+      st.runStartEq = st.dayStartEq;
+   Print("Phase Trade: new day auto bal=",DoubleToString(st.dayStartEq,2),
+         " runStart=",DoubleToString(st.runStartEq,2),
+         " +",DoubleToString(cfg.dailyProfitPct,1),"% / -",
+         DoubleToString(cfg.dailyLossPct,1),"%");
+  }
+
+double PhTrade_ActiveBookPct(SPhTradeState &st,const SPhTradeCfg &cfg)
+  {
+   double pct = (cfg.bookProfitPct > 0.0 ? cfg.bookProfitPct : 5.0);
+   if(st.bookTight)
+      return(cfg.bookProfitPctTight > 0.0 ? cfg.bookProfitPctTight : 2.0);
+   if(cfg.bookTightenAtPct <= 0.0 || st.runStartEq <= 0.0)
+      return(pct);
+
+   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+   if(eq + 1e-8 < st.runStartEq * (1.0 + cfg.bookTightenAtPct / 100.0))
+      return(pct);
+
+   st.bookTight = true;
+   pct = (cfg.bookProfitPctTight > 0.0 ? cfg.bookProfitPctTight : 2.0);
+   Print("Phase Trade: +",DoubleToString(cfg.bookTightenAtPct,1),
+         "% vs runStart ",DoubleToString(st.runStartEq,2),
+         " → book % ",DoubleToString(cfg.bookProfitPct,1)," → ",
+         DoubleToString(pct,1));
+   return(pct);
+  }
+
+// Floating profit ≥ book % of today's auto equity → CloseAll
+bool PhTrade_PollProfitHalfClose(SPhTradeState &st,const SPhTradeCfg &cfg)
+  {
+   if(!cfg.enable)
+      return(false);
+   PhTrade_RollDay(st,cfg);
+   if(PhTrade_CountOurs(cfg.magic) <= 0)
+      return(false);
+   if(st.dayStartEq <= 0.0)
+      return(false);
+
+   double fl = PhTrade_BasketFloat(cfg.magic);
+   const double pct = PhTrade_ActiveBookPct(st,cfg);
+   const double need = st.dayStartEq * (pct / 100.0);
+   if(fl < need)
+      return(false);
+
+   int n = PhTrade_CloseAll(st,cfg);
+   Print("Phase Trade: profit≥",DoubleToString(pct,1),"% of day bal ",
+         DoubleToString(st.dayStartEq,2)," → CloseAll n=",n,
+         " float=",DoubleToString(fl,2)," need≥",DoubleToString(need,2));
+   return(n > 0);
+  }
+
+// Today's P/L vs ±% of auto day-start equity → CloseAll + stop until next day
 bool PhTrade_PollDailyTarget(SPhTradeState &st,const SPhTradeCfg &cfg)
   {
    if(!cfg.enable)
       return(false);
-   if(cfg.bookBaseBal <= 0.0)
-      return(false);
    if(cfg.dailyProfitPct <= 0.0 && cfg.dailyLossPct <= 0.0)
       return(false);
 
-   datetime day = PhTrade_DayStamp(TimeCurrent());
-   if(day <= 0)
-      return(false);
-
-   if(st.dayStamp != day)
-     {
-      st.dayStamp   = day;
-      st.dayStartEq = AccountInfoDouble(ACCOUNT_EQUITY);
-      st.dayStopped = false;
-      Print("Phase Trade: new day start eq=",DoubleToString(st.dayStartEq,2),
-            " book=",DoubleToString(cfg.bookBaseBal,2),
-            " +",DoubleToString(cfg.dailyProfitPct,1),"% / -",
-            DoubleToString(cfg.dailyLossPct,1),"% of book");
-     }
-
+   PhTrade_RollDay(st,cfg);
    if(st.dayStopped)
       return(false);
    if(st.dayStartEq <= 0.0)
       return(false);
 
    const double pnl = AccountInfoDouble(ACCOUNT_EQUITY) - st.dayStartEq;
-   const double profitNeed = cfg.bookBaseBal * (cfg.dailyProfitPct / 100.0);
-   const double lossNeed   = cfg.bookBaseBal * (cfg.dailyLossPct / 100.0);
+   const double profitNeed = st.dayStartEq * (cfg.dailyProfitPct / 100.0);
+   const double lossNeed   = st.dayStartEq * (cfg.dailyLossPct / 100.0);
    bool hitProfit = (cfg.dailyProfitPct > 0.0 && pnl + 1e-8 >= profitNeed);
    bool hitLoss   = (cfg.dailyLossPct > 0.0 && pnl - 1e-8 <= -lossNeed);
    if(!hitProfit && !hitLoss)
@@ -798,7 +829,7 @@ bool PhTrade_PollDailyTarget(SPhTradeState &st,const SPhTradeCfg &cfg)
    st.dayStopped = true;
    PhTrade_ResetArms(st);
    Print("Phase Trade: daily ",(hitLoss ? "LOSS" : "PROFIT"),
-         " stop pnl=",DoubleToString(pnl,2)," book=",DoubleToString(cfg.bookBaseBal,2),
+         " stop pnl=",DoubleToString(pnl,2)," dayBal=",DoubleToString(st.dayStartEq,2),
          " → CloseAll n=",n," STOP until next day");
    return(true);
   }

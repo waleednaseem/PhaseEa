@@ -1,5 +1,5 @@
 ## Current focus
-Daily ±10% of `InpBookBaseBal` (not live equity) → CloseAll + stop until next day.
+Daily balance auto (day-start equity). ±10% of that → stop. Book CloseAll 5% of day bal; after +15% vs run-start → 2% (latched).
 
 ## Decisions
 - Leave/enter via PhStay_BuyConfirm / PhStay_SellConfirm

@@ -76,10 +76,12 @@ input long               InpTradeMagic      = 140001;
 input int                InpTradeDeviation  = 30;
 input bool               InpShowPriceSR     = true;  // last-100 price S&R lines
 input int                InpPriceSRBars     = 100;
-input double             InpBookBaseBal     = 10000;     // book size (0 = profit-book + daily stop off)
-input double             InpBookProfitPct   = 5.0;   // CloseAll when float ≥ this % of InpBookBaseBal
-input double             InpDailyProfitPct  = 10.0;  // today +this % of book → stop until next day (0=off)
-input double             InpDailyLossPct    = 10.0;  // today -this % of book → stop until next day (0=off)
+input double             InpBookBaseBal       = 0;      // unused — day balance auto
+input double             InpBookProfitPct     = 5.0;    // CloseAll float ≥ this % of today's auto bal
+input double             InpBookProfitPct2    = 2.0;    // book % after overall +InpBookTightenAtPct
+input double             InpBookTightenAtPct  = 15.0;   // overall +this % vs run start → use Pct2
+input double             InpDailyProfitPct    = 10.0;   // today +this % of auto bal → stop until next day (0=off)
+input double             InpDailyLossPct      = 10.0;   // today -this % of auto bal → stop until next day (0=off)
 
 input group "=== FVG ==="
 input bool               InpShowFvg             = true;
@@ -167,10 +169,12 @@ void LoadConfig()
    g_tradeCfg.deviation = InpTradeDeviation;
    g_tradeCfg.fvgLookback  = InpFvgLookbackBars;
    g_tradeCfg.fvgMinGapPts = InpFvgMinGapPoints;
-   g_tradeCfg.bookProfitPct  = InpBookProfitPct;
-   g_tradeCfg.bookBaseBal    = InpBookBaseBal;
-   g_tradeCfg.dailyProfitPct = InpDailyProfitPct;
-   g_tradeCfg.dailyLossPct   = InpDailyLossPct;
+   g_tradeCfg.bookProfitPct      = InpBookProfitPct;
+   g_tradeCfg.bookProfitPctTight = InpBookProfitPct2;
+   g_tradeCfg.bookTightenAtPct   = InpBookTightenAtPct;
+   g_tradeCfg.bookBaseBal        = InpBookBaseBal;
+   g_tradeCfg.dailyProfitPct     = InpDailyProfitPct;
+   g_tradeCfg.dailyLossPct       = InpDailyLossPct;
   }
 
 void AttachPhaseRsi()
