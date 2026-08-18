@@ -49,7 +49,7 @@ struct SPhWalk
    bool taggedCap;
    bool taggedFloor;
    bool hadBreakout;
-   // per-regime INV (unused — S&R OFF)
+   // per-regime INV (dotted regime S&R)
    double   invLevel;
    datetime invTime;
    bool     invOn;
@@ -63,6 +63,25 @@ struct SPhWalk
    int      zSellAge;
    bool     zSellRetest;
    bool     zSellPullback;
+   // Opposite-zone bounce (no 65/35 cross): 35-40 up → BUY, 60-65 down → SELL
+   bool     zOppBuyArmed;
+   bool     zOppSellArmed;
+   int      loopStep;       // 0-1-2: 0=regular Div, 1=same-side, 2=latched until Div
+   // Sharp S&R (PriceSR dotted) for loop step 1/2 — stay = park too long
+   bool     loopSrArmed;
+   bool     loopSrIsSup;
+   double   loopSrLvl;
+   int      loopSrPark;
+   // Step-1 extreme: reject peak → break UP invalidates; bounce trough → break DOWN invalidates
+   double   loopStep1Ext;
+   bool     loopStep1Peak;  // true=reject (SELL path step1), false=bounce (BUY path step1)
+   datetime loopStep1Time;
+   bool     loopEvt0;       // stamp 0 this bar (regular Div only)
+   bool     loopEvt1;
+   bool     loopEvt2;
+   datetime loopKill1Time;  // 1 invalidate → remove stamp, no 0
+   bool     loop50Armed;    // tagged 50 after 012
+   bool     loop50Ready;    // 012 complete — 50 switch allowed (idle-2 nahi)
   };
 
 #define PH_SR_MAX 256
@@ -149,6 +168,22 @@ void PhWalkReset(SPhWalk &w)
    w.zSellAge         = 0;
    w.zSellRetest      = false;
    w.zSellPullback    = false;
+   w.zOppBuyArmed     = false;
+   w.zOppSellArmed    = false;
+   w.loopStep         = 2;    // idle until regular Div (=0)
+   w.loopSrArmed      = false;
+   w.loopSrIsSup      = false;
+   w.loopSrLvl        = 0.0;
+   w.loopSrPark       = 0;
+   w.loopStep1Ext     = 0.0;
+   w.loopStep1Peak    = false;
+   w.loopStep1Time    = 0;
+   w.loopEvt0         = false;
+   w.loopEvt1         = false;
+   w.loopEvt2         = false;
+   w.loopKill1Time    = 0;
+   w.loop50Armed      = false;
+   w.loop50Ready      = false;
   }
 
 void PhWalkClearZoneBuy(SPhWalk &w)
@@ -167,10 +202,30 @@ void PhWalkClearZoneSell(SPhWalk &w)
    w.zSellPullback = false;
   }
 
+void PhWalkClearLoopSr(SPhWalk &w)
+  {
+   w.loopSrArmed = false;
+   w.loopSrIsSup = false;
+   w.loopSrLvl   = 0.0;
+   w.loopSrPark  = 0;
+  }
+
+void PhWalkClearLoopStep1(SPhWalk &w)
+  {
+   w.loopStep1Ext  = 0.0;
+   w.loopStep1Peak = false;
+   w.loopStep1Time = 0;
+  }
+
 void PhWalkClearZoneStay(SPhWalk &w)
   {
    PhWalkClearZoneBuy(w);
    PhWalkClearZoneSell(w);
+   w.zOppBuyArmed  = false;
+   w.zOppSellArmed = false;
+   w.loop50Armed   = false;
+   PhWalkClearLoopSr(w);
+   PhWalkClearLoopStep1(w);
   }
 
 void PhWalkClearBreakout(SPhWalk &w)
@@ -196,7 +251,14 @@ void PhWalkClearInv(SPhWalk &w)
    PhWalkClearInvBreak(w);
   }
 
-// --- 65/35 zone flip (S&R OFF): cross + retest bounce / hold bounce / park ---
+// --- 65/35 zone flip + PriceSR sharp: cross + retest bounce / hold bounce ---
+#define PH_LOOP_SR_TOUCH 1.5
+#define PH_LOOP_SR_STAY  3
+#define PH_LOOP_OVERSHOOT 3.0
+#define PH_LOOP_EDGE     1.0  // 59=60, 41=40 — loop 1/2 merge
+#define PH_LOOP_50       50.0
+#define PH_LOOP_50_BAND  2.5
+
 bool PhStay_Above65(const SPhConfig &cfg,const double v)
   {
    return(v + 1e-9 >= cfg.bearCap + cfg.tol);
@@ -214,6 +276,14 @@ bool PhStay_In6065(const SPhConfig &cfg,const double v)
    return(v + 1e-9 >= lo && v < hi);
   }
 
+// Uncertain market: allow slight overshoot above 65 for step-1 reject
+bool PhStay_In6065Loose(const SPhConfig &cfg,const double v)
+  {
+   const double lo = cfg.bearCapLo - cfg.tol - PH_LOOP_EDGE; // 59
+   const double hi = cfg.bearCap + cfg.tol + PH_LOOP_OVERSHOOT;
+   return(v + 1e-9 >= lo && v <= hi + 1e-9);
+  }
+
 bool PhStay_In3540(const SPhConfig &cfg,const double v)
   {
    const double lo = cfg.bullHard - cfg.tol;
@@ -221,15 +291,208 @@ bool PhStay_In3540(const SPhConfig &cfg,const double v)
    return(v > lo && v <= hi + 1e-9);
   }
 
+// Uncertain market: allow slight undershoot below 35 for step-1 bounce
+bool PhStay_In3540Loose(const SPhConfig &cfg,const double v)
+  {
+   const double lo = cfg.bullHard - cfg.tol - PH_LOOP_OVERSHOOT;
+   const double hi = cfg.bullFloor + cfg.tol + PH_LOOP_EDGE; // 41
+   return(v + 1e-9 >= lo && v <= hi + 1e-9);
+  }
+
+// 0 = regular Div only (stamp). RSI 35-65 bahar se 0 nahi.
+bool PhStay_LoopTryMark0(SPhWalk &w,const bool newRegularDiv)
+  {
+   if(!newRegularDiv)
+      return(false);
+   if(w.loopStep1Time > 0)
+      w.loopKill1Time = w.loopStep1Time;
+   w.loopStep = 0;
+   w.loopEvt0 = true;
+   w.loop50Ready = false;
+   w.loop50Armed = false;
+   PhWalkClearLoopSr(w);
+   PhWalkClearLoopStep1(w);
+   return(true);
+  }
+
+// Confirm step 1 + remember extreme (break of extreme → cancel 1)
+void PhStay_LoopSet1(SPhWalk &w,const double v,const double vOlder,
+                     const bool isPeakReject,const datetime barT)
+  {
+   w.loopStep      = 1;
+   w.loopStep1Peak = isPeakReject;
+   w.loopStep1Ext  = isPeakReject ? MathMax(v,vOlder) : MathMin(v,vOlder);
+   w.loopStep1Time = barT;
+   w.loopEvt1      = true;
+  }
+
+// While at 1: peak break UP / trough break DOWN → wapas wait (1 stamp hataye, 0 stamp nahi)
+bool PhStay_LoopInvalidate1(SPhWalk &w,const SPhConfig &cfg,const double v)
+  {
+   if(w.loopStep != 1 || w.loopStep1Ext <= 0.0)
+      return(false);
+   const double tol = MathMax(0.5,cfg.tol);
+   bool broken = false;
+   if(w.loopStep1Peak)
+      broken = (v > w.loopStep1Ext + tol);
+   else
+      broken = (v < w.loopStep1Ext - tol);
+   if(!broken)
+      return(false);
+   w.loopKill1Time = w.loopStep1Time;
+   w.loopStep = 0;
+   w.zOppBuyArmed  = false;
+   w.zOppSellArmed = false;
+   PhWalkClearLoopSr(w);
+   PhWalkClearLoopStep1(w);
+   return(true);
+  }
+
+// SELL→BUY: 35-40 bounce UP (loose OK). Deep dump below cancels.
+bool PhStay_BounceBuyFrom3540(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
+  {
+   const double lvl40 = cfg.bullFloor + cfg.tol + PH_LOOP_EDGE; // 41
+   const double deep  = cfg.bullHard - cfg.tol - PH_LOOP_OVERSHOOT;
+
+   if(v <= deep + 1e-9)
+     {
+      w.zOppBuyArmed = false;
+      return(false);
+     }
+
+   if(PhStay_In3540Loose(cfg,v))
+     {
+      if(!w.zOppBuyArmed)
+        {
+         if(vOlder > lvl40)
+            w.zOppBuyArmed = true;
+         return(false);
+        }
+      if(v > vOlder)
+        {
+         w.zOppBuyArmed = false;
+         return(true);
+        }
+      return(false);
+     }
+
+   if(w.zOppBuyArmed && v > lvl40 && v > vOlder)
+     {
+      w.zOppBuyArmed = false;
+      return(true);
+     }
+   w.zOppBuyArmed = false;
+   return(false);
+  }
+
+// BUY→SELL: 60-65 bounce DOWN (loose overshoot OK). Deep spike above cancels.
+bool PhStay_BounceSellFrom6065(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
+  {
+   const double lvl60 = cfg.bearCapLo - cfg.tol - PH_LOOP_EDGE; // 59
+   const double deep  = cfg.bearCap + cfg.tol + PH_LOOP_OVERSHOOT;
+
+   if(v + 1e-9 >= deep)
+     {
+      w.zOppSellArmed = false;
+      return(false);
+     }
+
+   if(PhStay_In6065Loose(cfg,v))
+     {
+      if(!w.zOppSellArmed)
+        {
+         if(vOlder < lvl60)
+            w.zOppSellArmed = true;
+         return(false);
+        }
+      if(v < vOlder)
+        {
+         w.zOppSellArmed = false;
+         return(true);
+        }
+      return(false);
+     }
+
+   if(w.zOppSellArmed && v < lvl60 && v < vOlder)
+     {
+      w.zOppSellArmed = false;
+      return(true);
+     }
+   w.zOppSellArmed = false;
+   return(false);
+  }
+
+bool PhStay_BounceBuyFrom50(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
+  {
+   if(!w.loop50Ready)
+      return(false);
+   const double mid   = PH_LOOP_50;
+   const double band  = MathMax(PH_LOOP_50_BAND,cfg.tol);
+   const double floor = cfg.bullHard - cfg.tol;
+   const double cap   = cfg.bearCapLo - cfg.tol;
+
+   if(v + 1e-9 < floor || v + 1e-9 >= cap)
+     {
+      w.loop50Armed = false;
+      return(false);
+     }
+   if(!w.loop50Armed)
+     {
+      // 50 pe UPAR se aao — 35-40 wiggle ≠ 50 bounce
+      if(vOlder > mid + band && v <= mid + cfg.tol + 1e-9)
+         w.loop50Armed = true;
+      return(false);
+     }
+   if(v > vOlder)
+     {
+      w.loop50Armed = false;
+      w.loop50Ready = false;
+      return(true);
+     }
+   return(false);
+  }
+
+bool PhStay_RejectSellFrom50(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
+  {
+   if(!w.loop50Ready)
+      return(false);
+   const double mid   = PH_LOOP_50;
+   const double band  = MathMax(PH_LOOP_50_BAND,cfg.tol);
+   const double floor = cfg.bullFloor + cfg.tol;
+   const double cap   = cfg.bearCap + cfg.tol;
+
+   if(v > cap + 1e-9 || v + 1e-9 < floor)
+     {
+      w.loop50Armed = false;
+      return(false);
+     }
+   if(!w.loop50Armed)
+     {
+      if(vOlder < mid - band && v + 1e-9 >= mid - cfg.tol)
+         w.loop50Armed = true;
+      else if(v + 1e-9 >= mid - cfg.tol)
+         w.loop50Armed = true;
+      return(false);
+     }
+   if(v < vOlder)
+     {
+      w.loop50Armed = false;
+      w.loop50Ready = false;
+      return(true);
+     }
+   return(false);
+  }
+
 // Cross 65 up → arm.
 // BUY flip ONLY if RSI reclaims 65 after 60-65 pullback (60-65 tick ≠ BUY).
 bool PhStay_BuyConfirm(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder,
                        const bool canFlip)
   {
-   const double lvl65 = cfg.bearCap + cfg.tol;
-   const double lvl60 = cfg.bearCapLo - cfg.tol;
+   const double lvl65 = cfg.bearCap - PH_LOOP_EDGE; // 64=65
+   const double lvl60 = cfg.bearCapLo - cfg.tol - PH_LOOP_EDGE; // 59
+   const bool   at65  = (v + 1e-9 >= lvl65);
 
-   if(vOlder < lvl65 && v + 1e-9 >= lvl65)
+   if(vOlder < lvl65 && at65)
      {
       w.zBuyArmed    = true;
       w.zBuyAge      = 1;
@@ -249,26 +512,21 @@ bool PhStay_BuyConfirm(SPhWalk &w,const SPhConfig &cfg,const double v,const doub
 
    w.zBuyAge++;
 
-   if(PhStay_In6065(cfg,v))
+   if(PhStay_In6065Loose(cfg,v))
       w.zBuyRetest = true;
-   // pullback = dipped while still above 65 (real u-turn), not any down tick
-   if(PhStay_Above65(cfg,v) && v < vOlder)
+   if(at65 && v < vOlder)
       w.zBuyPullback = true;
 
-   if(w.zBuyAge < 5)
+   if(w.zBuyAge < MathMax(2,cfg.confirmBars))
       return(false);
 
    bool want = false;
-   // Path A: visited 60-65, then bounce BACK above 65 (reclaim)
-   if(w.zBuyRetest && PhStay_Above65(cfg,v) && v > vOlder)
+   if(w.zBuyRetest && at65 && v > vOlder)
       want = true;
-   // Path B: never left 65, small u-turn then bounce up (still >65)
-   else if(!w.zBuyRetest && w.zBuyPullback && PhStay_Above65(cfg,v) && v > vOlder)
+   else if(!w.zBuyRetest && w.zBuyPullback && at65 && v > vOlder)
       want = true;
 
    if(!want)
-      return(false);
-   if(!canFlip)
       return(false);
 
    PhWalkClearZoneBuy(w);

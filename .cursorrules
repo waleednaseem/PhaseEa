@@ -1,17 +1,26 @@
 # Phase — Project Intelligence
 
 ## Product
-RSI regime EA: visual + live bounce trades (v1.47).
+RSI regime EA: visual + live bounce trades (v1.54).
 
-## Regime (v1.49 freeze / ignite-once — S&R OFF)
+## Regime (v1.54 0-1-2 — Regular Div = 0)
 - OnInit: ONE 500-bar walk (ignite) → freeze `g_regimes` + keep `g_walk`
-- New bar: `PhRegimeAdvance` only — never rebuild past colours
-- **S&R/INV disabled** (no capture/refresh/lines for regime)
-- Enter/leave RSI zone (S&R OFF):
+- New bar: `RunDivScan` → `PhRegimeAdvance` only — never rebuild past colours
+- Regime INV S&R on (`PhInv_*`) + PriceSR dotted `<35` / `>65` for sharp loop
+- Enter/leave RSI zone:
   - **65** cross + (60-65 bounce OR upar chhota u-turn bounce) → BUY
   - **35** cross + (35-40 bounce OR neeche chhota u-turn) → SELL
   - Spike bina bounce = no flip; <60 / >40 → cancel arm
-- Price Div / BOS lines do **not** flip regime
+  - **0-1-2 loop** (`w.loopStep`):
+    - **0** stamp = **sirf regular Div** (RSI 35-65 bahar se 0 nahi)
+    - SELL: **1** = 59–65 bounce-down (59=60) **ya** near-65 PriceSR sharp → **2** = 35–41 bounce (41=40) **ya** near-35 PriceSR sharp → BUY latch
+    - BUY: **1** = 35–41 bounce-up **ya** near-35 PriceSR sharp → **2** = 59–65 bounce **ya** near-65 PriceSR sharp → SELL latch
+    - After 2: opposite 35/65 ignore until next **regular Div (=0)**
+    - **2 ke baad 50 (sirf 012 complete):** 50 tag, phir reject DOWN → SELL / bounce UP → BUY (overshoot 50–65 OK). HD kabhi 0 nahi
+    - Same bar pe 0→1 ya 1→2 nahi; HUD nahi (sirf chart+RSI stamps)
+    - Sharp = reverse ≤3 bars; park/stay on S&R = no count
+    - **1 invalidate:** 1 stamp hataye, **0 stamp nahi**
+- Price Div / BOS lines do **not** flip regime (regular Div only restarts loop)
 
 ## Trade (v1.47)
 - **Daily stop:** each server day auto-picks equity (`dayStartEq`). ±% of that → CloseAll + no entries until next day (`InpDailyProfitPct` / `InpDailyLossPct` 10/10)
@@ -54,6 +63,7 @@ RSI regime EA: visual + live bounce trades (v1.47).
 
 ## Companion
 `Indicators/Phase_RSI.mq5` — RSI(14), levels 20/35/40/50/60/65/80
+`Indicators/Phase_MA.mq5` — SMA close 10 white / 60 red (chart window)
 
 ## Docs
 Phase_PRD.md + memory-bank/

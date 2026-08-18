@@ -351,5 +351,115 @@ void PhPriceSR_CheckTrade(SPhPriceSR &st,SPhTradeState &trade,const SPhTradeCfg 
       PhPriceSR_ClearArm(st);
   }
 
+// --- 0-1-2 loop: sharp PriceSR bounce (not stay/park) ---
+bool PhPriceSR_NearBandResist(const double lvl,const SPhConfig &cfg)
+  {
+   // resist >65 (dotted) — near 65 band
+   return(lvl > cfg.bearCap - 1.0e-9);
+  }
+
+bool PhPriceSR_NearBandSupport(const double lvl,const SPhConfig &cfg)
+  {
+   // support <35 (dotted) — near 35 band (31/32 etc.)
+   return(lvl < cfg.bullHard + 1.0e-9);
+  }
+
+bool PhPriceSR_LoopSharpRejectDown(SPhPriceSR &st,SPhWalk &w,const SPhConfig &cfg,
+                                   const double v,const double vOlder)
+  {
+   const double tol = MathMax(PH_LOOP_SR_TOUCH,cfg.tol);
+   bool nearAny = false;
+   double hitLvl = 0.0;
+
+   for(int i = 0; i < st.count; i++)
+     {
+      if(st.lvl[i].isSupport) continue;
+      if(!PhPriceSR_NearBandResist(st.lvl[i].level,cfg)) continue;
+      if(!PhPriceSR_NearLevel(v,vOlder,st.lvl[i].level,tol)) continue;
+      nearAny = true;
+      hitLvl = st.lvl[i].level;
+      break;
+     }
+
+   if(!nearAny)
+     {
+      if(w.loopSrArmed && !w.loopSrIsSup)
+         PhWalkClearLoopSr(w);
+      return(false);
+     }
+
+   if(!w.loopSrArmed || w.loopSrIsSup || MathAbs(w.loopSrLvl - hitLvl) > tol)
+     {
+      w.loopSrArmed = true;
+      w.loopSrIsSup = false;
+      w.loopSrLvl   = hitLvl;
+      w.loopSrPark  = 1;
+      return(false); // touch bar — need reverse
+     }
+
+   w.loopSrPark++;
+   if(w.loopSrPark > PH_LOOP_SR_STAY)
+     {
+      // stay/park — not sharp
+      PhWalkClearLoopSr(w);
+      return(false);
+     }
+
+   if(v < vOlder)
+     {
+      PhWalkClearLoopSr(w);
+      return(true);
+     }
+   return(false);
+  }
+
+bool PhPriceSR_LoopSharpBounceUp(SPhPriceSR &st,SPhWalk &w,const SPhConfig &cfg,
+                                 const double v,const double vOlder)
+  {
+   const double tol = MathMax(PH_LOOP_SR_TOUCH,cfg.tol);
+   bool nearAny = false;
+   double hitLvl = 0.0;
+
+   for(int i = 0; i < st.count; i++)
+     {
+      if(!st.lvl[i].isSupport) continue;
+      if(!PhPriceSR_NearBandSupport(st.lvl[i].level,cfg)) continue;
+      if(!PhPriceSR_NearLevel(v,vOlder,st.lvl[i].level,tol)) continue;
+      nearAny = true;
+      hitLvl = st.lvl[i].level;
+      break;
+     }
+
+   if(!nearAny)
+     {
+      if(w.loopSrArmed && w.loopSrIsSup)
+         PhWalkClearLoopSr(w);
+      return(false);
+     }
+
+   if(!w.loopSrArmed || !w.loopSrIsSup || MathAbs(w.loopSrLvl - hitLvl) > tol)
+     {
+      w.loopSrArmed = true;
+      w.loopSrIsSup = true;
+      w.loopSrLvl   = hitLvl;
+      w.loopSrPark  = 1;
+      return(false);
+     }
+
+   w.loopSrPark++;
+   if(w.loopSrPark > PH_LOOP_SR_STAY)
+     {
+      PhWalkClearLoopSr(w);
+      return(false);
+     }
+
+   if(v > vOlder)
+     {
+      PhWalkClearLoopSr(w);
+      return(true);
+     }
+   return(false);
+  }
+
 #endif
 //+------------------------------------------------------------------+

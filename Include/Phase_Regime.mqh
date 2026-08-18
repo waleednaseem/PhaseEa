@@ -7,6 +7,7 @@
 
 #include "Phase_Types.mqh"
 #include "Phase_SR.mqh"
+#include "Phase_PriceSR.mqh"
 #include "Phase_BuyRegime.mqh"
 #include "Phase_SellRegime.mqh"
 
@@ -41,7 +42,8 @@ int PhRegimeLockBars(const SPhConfig &cfg)
   }
 
 void PhEnterBull(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &times[],
-                 const int shift,const int hist,const SPhConfig &cfg)
+                 const int shift,const int hist,const SPhConfig &cfg,
+                 const bool fromBounce)
   {
    w.state            = PH_BULLISH;
    w.hadBreakout      = true;
@@ -51,14 +53,17 @@ void PhEnterBull(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &tim
    w.regimeStartShift = shift;
    PhWalkClearBreakout(w);
    PhWalkClearInvBreak(w);
-   PhWalkClearInv(w); // S&R/INV disabled
    PhWalkClearZoneStay(w);
+   w.loopStep         = 2; // latch until next regular Div (=0)
+   PhInv_StartBuy(w,L,rsi,times,shift,hist,cfg);
    Print("Phase Regime: BUY rsi=",DoubleToString(rsi[shift],2),
+         " bounce=",(fromBounce ? "1" : "0"),
          " @ ",TimeToString(times[shift]));
   }
 
 void PhEnterBear(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &times[],
-                 const int shift,const int hist,const SPhConfig &cfg)
+                 const int shift,const int hist,const SPhConfig &cfg,
+                 const bool fromBounce)
   {
    w.state            = PH_BEARISH;
    w.hadBreakout      = false;
@@ -69,15 +74,26 @@ void PhEnterBear(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &tim
    w.regimeStartShift = shift;
    PhWalkClearBreakout(w);
    PhWalkClearInvBreak(w);
-   PhWalkClearInv(w); // S&R/INV disabled
    PhWalkClearZoneStay(w);
+   w.loopStep         = 2; // latch until next regular Div (=0)
+   PhInv_StartSell(w,L,rsi,times,shift,hist,cfg);
   }
 
-// One closed bar — leave/enter via 65/35 stay only (S&R OFF)
-void PhRegimeStep(SPhWalk &w,SPhSRList &L,
+void PhRegime_FollowSR(SPhWalk &w,SPhSRList &L,const double &rsi[],const datetime &times[],
+                       const int shift,const int hist,const SPhConfig &cfg)
+  {
+   if(w.state != PH_BULLISH && w.state != PH_BEARISH)
+      return;
+   PhInv_CaptureDuring(w,L,rsi,times,shift,hist,cfg);
+   PhInv_Refresh(w,L,rsi,times,shift,hist,cfg);
+   PhInv_Follow(w,L,times[shift]);
+  }
+
+// One closed bar — leave/enter via zone bounce + PriceSR sharp; 0=regular Div
+void PhRegimeStep(SPhWalk &w,SPhSRList &L,SPhPriceSR &psr,
                   const double &rsi[],const datetime &times[],
                   const int shift,const int hist,const SPhConfig &cfg,
-                  ENUM_PH_REGIME &regimes[])
+                  const bool newRegularDiv,ENUM_PH_REGIME &regimes[])
   {
    if(shift < 1 || shift > hist)
       return;
@@ -88,33 +104,39 @@ void PhRegimeStep(SPhWalk &w,SPhSRList &L,
 
    PhSell_TrackCap(w,cfg,v);
    PhBuy_TrackFloor(w,cfg,v,vOlder);
+   PhRegime_FollowSR(w,L,rsi,times,shift,hist,cfg);
 
    if(w.state == PH_BULLISH)
      {
       w.barsInRegime++;
-      if(PhBuy_Process(w,cfg,v,vOlder,w.barsInRegime > lockBars))
-         PhEnterBear(w,L,rsi,times,shift,hist,cfg);
+      bool fromBounce = false;
+      if(PhBuy_Process(w,psr,cfg,v,vOlder,times[shift],w.barsInRegime > lockBars,newRegularDiv,fromBounce))
+         PhEnterBear(w,L,rsi,times,shift,hist,cfg,fromBounce);
      }
    else if(w.state == PH_BEARISH)
      {
       w.barsInRegime++;
-      if(PhSell_Process(w,cfg,v,vOlder,w.barsInRegime > lockBars))
-         PhEnterBull(w,L,rsi,times,shift,hist,cfg);
+      bool fromBounce = false;
+      if(PhSell_Process(w,psr,cfg,v,vOlder,times[shift],w.barsInRegime > lockBars,newRegularDiv,fromBounce))
+         PhEnterBull(w,L,rsi,times,shift,hist,cfg,true);
      }
    else
      {
-      // don't let both arms fight — pick side by RSI
-      if(v >= 50.0)
+      if(PhStay_BounceBuyFrom3540(w,cfg,v,vOlder))
+         PhEnterBull(w,L,rsi,times,shift,hist,cfg,false);
+      else if(PhStay_BounceSellFrom6065(w,cfg,v,vOlder))
+         PhEnterBear(w,L,rsi,times,shift,hist,cfg,true);
+      else if(v >= 50.0)
         {
          PhWalkClearZoneSell(w);
          if(PhBuy_TryEnter(w,cfg,v,vOlder))
-            PhEnterBull(w,L,rsi,times,shift,hist,cfg);
+            PhEnterBull(w,L,rsi,times,shift,hist,cfg,false);
         }
       else
         {
          PhWalkClearZoneBuy(w);
          if(PhSell_TryEnter(w,cfg,v,vOlder))
-            PhEnterBear(w,L,rsi,times,shift,hist,cfg);
+            PhEnterBear(w,L,rsi,times,shift,hist,cfg,false);
         }
      }
 
@@ -124,20 +146,20 @@ void PhRegimeStep(SPhWalk &w,SPhSRList &L,
 // EA start only — full history ignite; walk state kept for forward steps
 void PhBuildRegimes(const double &rsi[],const datetime &times[],const int hist,
                     const SPhConfig &cfg,ENUM_PH_REGIME &regimes[],
-                    SPhSRList &srList,SPhWalk &w)
+                    SPhSRList &srList,SPhWalk &w,SPhPriceSR &psr)
   {
    PhWalkReset(w);
    PhSRListClear(srList);
 
    for(int shift = hist; shift >= 1; shift--)
-      PhRegimeStep(w,srList,rsi,times,shift,hist,cfg,regimes);
+      PhRegimeStep(w,srList,psr,rsi,times,shift,hist,cfg,false,regimes);
   }
 
 // New closed bar: slide frozen history, bump enter-shift, step once
-void PhRegimeAdvance(SPhWalk &w,SPhSRList &L,
+void PhRegimeAdvance(SPhWalk &w,SPhSRList &L,SPhPriceSR &psr,
                      const double &rsi[],const datetime &times[],
                      const int hist,const SPhConfig &cfg,
-                     ENUM_PH_REGIME &regimes[])
+                     const bool newRegularDiv,ENUM_PH_REGIME &regimes[])
   {
    const int oldSize = ArraySize(regimes);
    ENUM_PH_REGIME prev[];
@@ -155,11 +177,10 @@ void PhRegimeAdvance(SPhWalk &w,SPhSRList &L,
          regimes[i + 1] = prev[i];
      }
 
-   // enter bar is one shift older after the new bar
    if(w.regimeStartShift > 0)
       w.regimeStartShift++;
 
-   PhRegimeStep(w,L,rsi,times,1,hist,cfg,regimes);
+   PhRegimeStep(w,L,psr,rsi,times,1,hist,cfg,newRegularDiv,regimes);
   }
 
 #endif

@@ -18,9 +18,15 @@ Experts/Phase/
     Phase_Trade.mqh
 ```
 
+## 0-1-2 loop
+**0** = regular Div only (restart/unlock; stamp 0). **1** same-side bounce ± PriceSR sharp. **2** opposite bounce ± PriceSR sharp → flip + latch (stamp).
+After 2, ignore opposite until next regular Div. No HUD. 1 invalid = stamp 1 remove, no 0 stamp.
+
+SELL: 1=60-65 / near-65 SR, 2=35-40 / near-35 SR→BUY. BUY: mirror.
+
 ## Flow
 OnInit → IgniteHistory → freeze g_regimes + g_walk
-OnTick new bar → PhRegimeAdvance → regime CloseAll if flip → bounce + PriceSR → paint → live Div → Div exits/unlock → HD entries
+OnTick new bar → RunDivScan → PhRegimeAdvance → regime CloseAll if flip → bounce + PriceSR → paint → Div exits/unlock → HD entries
 
 ## Conventions
 - Config: `g_cfg` loaded once

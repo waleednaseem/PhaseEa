@@ -17,7 +17,12 @@
 ## Paths
 - EA: `MQL5/Experts/Phase/Phase.mq5`
 - Indicator: `MQL5/Indicators/Phase_RSI.mq5`
+- MA: `MQL5/Indicators/Phase_MA.mq5` (SMA 10 white / 60 red)
 - FVG SL: `Include/Phase_FVG.mqh` (Future2EA port, no draw)
 
+## Regime walk
+- `SPhWalk.loopStep` — 0-1-2: 0=regular Div (stamp), 1=same-side bounce ± PriceSR, 2=latched until next Div; no HUD
+- AdvanceBar: Div scan before regime step
+
 ## Compile
-MetaEditor compile both `Phase.mq5` and `Phase_RSI.mq5`. Indicator must exist before EA attach works.
+MetaEditor compile `Phase.mq5`, `Phase_RSI.mq5`, and `Phase_MA.mq5`. Indicators must exist before EA attach works.

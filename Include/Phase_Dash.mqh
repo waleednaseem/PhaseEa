@@ -148,7 +148,10 @@ ENUM_PH_REGIME PhDash_CalcOne(const int rsiHandle,const ENUM_TIMEFRAMES tf,
    ArrayInitialize(regimes,(int)PH_NEUTRAL);
    SPhWalk w;
    SPhSRList L;
-   PhBuildRegimes(rsi,times,hist,cfg,regimes,L,w);
+   SPhPriceSR psr;
+   PhPriceSR_Init(psr);
+   PhPriceSR_Scan(psr,rsi,times,-1,100,2,false);
+   PhBuildRegimes(rsi,times,hist,cfg,regimes,L,w,psr);
    return(regimes[1]);
   }
 

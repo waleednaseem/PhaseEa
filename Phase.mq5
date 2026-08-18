@@ -2,7 +2,7 @@
 //|                                                       Phase.mq5  |
 //+------------------------------------------------------------------+
 #property copyright "Phase"
-#property version   "1.47"
+#property version   "1.54"
 
 #include "Include/Phase_Types.mqh"
 #include "Include/Phase_Regime.mqh"
@@ -55,9 +55,10 @@ input bool               InpShowBackground = true;
 input bool               InpShowHistory    = true;
 input bool               InpShowBoxes      = true;
 input bool               InpShowSignals    = true;
-input bool               InpShowRsiSR      = false; // S&R/INV disabled
+input bool               InpShowRsiSR      = true;  // regime INV dotted S&R on RSI
 input bool               InpShowDash       = true;
 input bool               InpAttachRsi      = true;
+input bool               InpAttachMa       = true;  // SMA 10 white / 60 red on chart
 input color              InpBullColor      = C'12,55,32';
 input color              InpBearColor      = C'70,18,22';
 input color              InpNeutralColor   = clrBlack;
@@ -118,6 +119,7 @@ SPhPriceSR     g_priceSR;
 bool           g_ignited    = false;
 int            g_rsiHandle  = INVALID_HANDLE;
 int            g_rsiWindow  = -1;
+int            g_maWindow   = -1;
 datetime       g_lastBar    = 0;
 ENUM_PH_REGIME g_lastRegime = PH_NEUTRAL;
 double         g_rsi[];
@@ -205,6 +207,31 @@ void AttachPhaseRsi()
       return;
      }
    g_rsiWindow = sub;
+  }
+
+void AttachPhaseMa()
+  {
+   for(int i = ChartIndicatorsTotal(0,0) - 1; i >= 0; i--)
+     {
+      string name = ChartIndicatorName(0,0,i);
+      if(StringFind(name,"Phase_MA") == 0)
+         ChartIndicatorDelete(0,0,name);
+     }
+   g_maWindow = -1;
+
+   int h = iCustom(_Symbol,_Period,"Phase_MA",10,60);
+   if(h == INVALID_HANDLE)
+     {
+      Print("Phase: compile Indicators/Phase_MA.mq5 first");
+      return;
+     }
+   if(!ChartIndicatorAdd(0,0,h))
+     {
+      Print("Phase: ChartIndicatorAdd MA failed err=",GetLastError());
+      IndicatorRelease(h);
+      return;
+     }
+   g_maWindow = 0;
   }
 
 void PaintDash(const bool forceCalc)
@@ -326,6 +353,14 @@ void PaintAll(const int hist)
    if(InpShowRsiSR)
       PhPaintRsiSR(g_srList,g_rsiWindow,InpSupportClr,InpResistClr);
 
+   datetime t1 = (ArraySize(g_times) > 1 ? g_times[1] : 0);
+   double   r1 = (ArraySize(g_rsi) > 1 ? g_rsi[1] : 50.0);
+   double   hi = iHigh(_Symbol,_Period,1);
+   double   lo = iLow(_Symbol,_Period,1);
+   if(hi <= 0.0) hi = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   if(lo <= 0.0) lo = hi;
+   PhPaintLoopStep(g_walk,t1,hi,lo,r1,g_rsiWindow);
+
    PaintFvg();
    PaintDash(false);
    ChartRedraw(0);
@@ -376,7 +411,8 @@ void IgniteHistory()
 
    ArrayResize(g_regimes,hist + 1);
    ArrayInitialize(g_regimes,(int)PH_NEUTRAL);
-   PhBuildRegimes(g_rsi,g_times,hist,g_cfg,g_regimes,g_srList,g_walk);
+   PhPriceSR_Scan(g_priceSR,g_rsi,g_times,g_rsiWindow,InpPriceSRBars,2,InpShowPriceSR);
+   PhBuildRegimes(g_rsi,g_times,hist,g_cfg,g_regimes,g_srList,g_walk,g_priceSR);
    g_ignited = true;
    PaintAll(hist);
    RunDivScan(true);
@@ -396,9 +432,11 @@ void AdvanceBar()
       return;
 
    PhTrade_SetMarkContext(g_rsiWindow,(ArraySize(g_rsi) > 1 ? g_rsi[1] : 0.0));
-   PhRegimeAdvance(g_walk,g_srList,g_rsi,g_times,hist,g_cfg,g_regimes);
-   // Div/BOS pehle — regime CloseAll rescue ke liye flags chahiye
+   // Div pehle — regular Div = loopStep 0; flags trade rescue ke liye bhi
    RunDivScan(false);
+   PhPriceSR_Scan(g_priceSR,g_rsi,g_times,g_rsiWindow,InpPriceSRBars,2,InpShowPriceSR);
+   const bool newRegDiv = (g_div.newRegularBull || g_div.newRegularBear);
+   PhRegimeAdvance(g_walk,g_srList,g_priceSR,g_rsi,g_times,hist,g_cfg,newRegDiv,g_regimes);
    ApplyTradeExitsAndEntries();
    PaintAll(hist);
    ApplyDivTradeExits();
@@ -434,6 +472,8 @@ int OnInit()
      }
    if(InpAttachRsi)
       AttachPhaseRsi();
+   if(InpAttachMa)
+      AttachPhaseMa();
 
    ChartSetInteger(0,CHART_SHOW_GRID,false);
    ChartSetInteger(0,CHART_COLOR_BACKGROUND,clrBlack);
@@ -466,6 +506,15 @@ void OnDeinit(const int reason)
          string name = ChartIndicatorName(0,g_rsiWindow,i);
          if(StringFind(name,"Phase_RSI") == 0)
             ChartIndicatorDelete(0,g_rsiWindow,name);
+        }
+     }
+   if(InpAttachMa && g_maWindow >= 0)
+     {
+      for(int i = ChartIndicatorsTotal(0,g_maWindow) - 1; i >= 0; i--)
+        {
+         string name = ChartIndicatorName(0,g_maWindow,i);
+         if(StringFind(name,"Phase_MA") == 0)
+            ChartIndicatorDelete(0,g_maWindow,name);
         }
      }
    ChartRedraw(0);

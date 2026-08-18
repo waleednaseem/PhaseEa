@@ -9,3 +9,5 @@ Traders need a clear visual of whether price is in a bullish RSI bounce band (35
 
 ## UX
 Attach EA to chart → Phase_RSI appears → background + strips + boxes update on new bars. Live bounce / price-S&R / HD trades when enabled; SL from 2nd FVG (else min pips); exits via Div / regime / SL.
+
+**0-1-2:** 0 = sirf regular Div. 1-2 = zone bounce ± PriceSR sharp. BUY: 35-40 then 60-65→SELL. SELL: 60-65 then 35-40→BUY.

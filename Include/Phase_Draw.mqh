@@ -283,5 +283,92 @@ void PhPaintRsiSR(const SPhSRList &L,const int rsiWindow,
      }
   }
 
+color PhLoopStepColor(const int step)
+  {
+   if(step == 0) return clrYellow;
+   if(step == 1) return clrAqua;
+   return clrOrange;
+  }
+
+void PhLoopStampDelete(const datetime barT,const int step,const int rsiWindow)
+  {
+   if(barT <= 0) return;
+   const string id = IntegerToString(step) + "_" + IntegerToString((int)barT);
+   ObjectDelete(0,g_phPrefix + "LpC_" + id);
+   if(rsiWindow >= 0)
+      ObjectDelete(0,g_phPrefix + "LpR_" + id);
+  }
+
+void PhLoopStampOne(const int step,const datetime barT,const double priceY,
+                    const double rsiY,const int rsiWindow)
+  {
+   if(barT <= 0 || step < 0 || step > 2)
+      return;
+   const string dig = IntegerToString(step);
+   const color  clr = PhLoopStepColor(step);
+   const string id  = dig + "_" + IntegerToString((int)barT);
+
+   string nm = g_phPrefix + "LpC_" + id;
+   ObjectDelete(0,nm);
+   if(ObjectCreate(0,nm,OBJ_TEXT,0,barT,priceY))
+     {
+      ObjectSetString(0,nm,OBJPROP_TEXT,dig);
+      ObjectSetInteger(0,nm,OBJPROP_COLOR,clr);
+      ObjectSetInteger(0,nm,OBJPROP_FONTSIZE,11);
+      ObjectSetString(0,nm,OBJPROP_FONT,"Arial Bold");
+      ObjectSetInteger(0,nm,OBJPROP_ANCHOR,ANCHOR_LOWER);
+      ObjectSetInteger(0,nm,OBJPROP_SELECTABLE,false);
+      ObjectSetInteger(0,nm,OBJPROP_HIDDEN,true);
+     }
+
+   if(rsiWindow >= 0 && rsiY > 0.0)
+     {
+      string nr = g_phPrefix + "LpR_" + id;
+      ObjectDelete(0,nr);
+      if(ObjectCreate(0,nr,OBJ_TEXT,rsiWindow,barT,rsiY))
+        {
+         ObjectSetString(0,nr,OBJPROP_TEXT,dig);
+         ObjectSetInteger(0,nr,OBJPROP_COLOR,clr);
+         ObjectSetInteger(0,nr,OBJPROP_FONTSIZE,10);
+         ObjectSetString(0,nr,OBJPROP_FONT,"Arial Bold");
+         ObjectSetInteger(0,nr,OBJPROP_ANCHOR,ANCHOR_LOWER);
+         ObjectSetInteger(0,nr,OBJPROP_SELECTABLE,false);
+         ObjectSetInteger(0,nr,OBJPROP_HIDDEN,true);
+        }
+     }
+  }
+
+void PhPaintLoopStep(SPhWalk &w,const datetime barT,
+                     const double priceHi,const double priceLo,
+                     const double rsiY,const int rsiWindow)
+  {
+   ObjectDelete(0,g_phPrefix + "LoopHud");
+
+   if(w.loopKill1Time > 0)
+     {
+      PhLoopStampDelete(w.loopKill1Time,1,rsiWindow);
+      w.loopKill1Time = 0;
+     }
+
+   if(w.loopEvt0)
+     {
+      const double py = (rsiY >= 50.0 ? priceHi : priceLo);
+      PhLoopStampOne(0,barT,py,rsiY,rsiWindow);
+      w.loopEvt0 = false;
+     }
+   if(w.loopEvt1)
+     {
+      const double py = (w.loopStep1Peak ? priceHi : priceLo);
+      PhLoopStampOne(1,barT,py,rsiY,rsiWindow);
+      w.loopEvt1 = false;
+     }
+   if(w.loopEvt2)
+     {
+      const double py = (w.state == PH_BULLISH ? priceLo : priceHi);
+      PhLoopStampOne(2,barT,py,rsiY,rsiWindow);
+      w.loopEvt2 = false;
+     }
+  }
+
 #endif
 //+------------------------------------------------------------------+
