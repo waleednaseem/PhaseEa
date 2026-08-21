@@ -364,10 +364,11 @@ bool PhPriceSR_NearBandSupport(const double lvl,const SPhConfig &cfg)
    return(lvl < cfg.bullHard + 1.0e-9);
   }
 
-bool PhPriceSR_LoopSharpRejectDown(SPhPriceSR &st,SPhWalk &w,const SPhConfig &cfg,
+bool PhPriceSR_LoopSharpRejectDown(SPhPriceSR &st,SPhWalk &w,SPhSRList &L,
+                                   const SPhConfig &cfg,
                                    const double v,const double vOlder)
   {
-   const double tol = MathMax(PH_LOOP_SR_TOUCH,cfg.tol);
+   const double tol = MathMax(5.0,cfg.tol);
    bool nearAny = false;
    double hitLvl = 0.0;
 
@@ -379,6 +380,28 @@ bool PhPriceSR_LoopSharpRejectDown(SPhPriceSR &st,SPhWalk &w,const SPhConfig &cf
       nearAny = true;
       hitLvl = st.lvl[i].level;
       break;
+     }
+
+   if(!nearAny && w.invOn && w.invLevel + 1e-9 >= cfg.bearCap)
+     {
+      if(PhPriceSR_NearLevel(v,vOlder,w.invLevel,tol))
+        {
+         nearAny = true;
+         hitLvl  = w.invLevel;
+        }
+     }
+
+   if(!nearAny)
+     {
+      for(int j = 0; j < L.count; j++)
+        {
+         if(L.seg[j].isSupport) continue;
+         if(L.seg[j].level0 + 1e-9 < cfg.bearCap) continue;
+         if(!PhPriceSR_NearLevel(v,vOlder,L.seg[j].level0,tol)) continue;
+         nearAny = true;
+         hitLvl  = L.seg[j].level0;
+         break;
+        }
      }
 
    if(!nearAny)
@@ -394,17 +417,16 @@ bool PhPriceSR_LoopSharpRejectDown(SPhPriceSR &st,SPhWalk &w,const SPhConfig &cf
       w.loopSrIsSup = false;
       w.loopSrLvl   = hitLvl;
       w.loopSrPark  = 1;
-      return(false); // touch bar — need reverse
-     }
-
-   w.loopSrPark++;
-   if(w.loopSrPark > PH_LOOP_SR_STAY)
-     {
-      // stay/park — not sharp
-      PhWalkClearLoopSr(w);
+      // same bar touch + reject down
+      if(v < vOlder)
+        {
+         PhWalkClearLoopSr(w);
+         return(true);
+        }
       return(false);
      }
 
+   w.loopSrPark++;
    if(v < vOlder)
      {
       PhWalkClearLoopSr(w);
@@ -413,10 +435,11 @@ bool PhPriceSR_LoopSharpRejectDown(SPhPriceSR &st,SPhWalk &w,const SPhConfig &cf
    return(false);
   }
 
-bool PhPriceSR_LoopSharpBounceUp(SPhPriceSR &st,SPhWalk &w,const SPhConfig &cfg,
+bool PhPriceSR_LoopSharpBounceUp(SPhPriceSR &st,SPhWalk &w,SPhSRList &L,
+                                 const SPhConfig &cfg,
                                  const double v,const double vOlder)
   {
-   const double tol = MathMax(PH_LOOP_SR_TOUCH,cfg.tol);
+   const double tol = MathMax(5.0,cfg.tol);
    bool nearAny = false;
    double hitLvl = 0.0;
 
@@ -428,6 +451,28 @@ bool PhPriceSR_LoopSharpBounceUp(SPhPriceSR &st,SPhWalk &w,const SPhConfig &cfg,
       nearAny = true;
       hitLvl = st.lvl[i].level;
       break;
+     }
+
+   if(!nearAny && w.invOn && w.invLevel <= cfg.bullHard + 1e-9)
+     {
+      if(PhPriceSR_NearLevel(v,vOlder,w.invLevel,tol))
+        {
+         nearAny = true;
+         hitLvl  = w.invLevel;
+        }
+     }
+
+   if(!nearAny)
+     {
+      for(int j = 0; j < L.count; j++)
+        {
+         if(!L.seg[j].isSupport) continue;
+         if(L.seg[j].level0 > cfg.bullHard + 1e-9) continue;
+         if(!PhPriceSR_NearLevel(v,vOlder,L.seg[j].level0,tol)) continue;
+         nearAny = true;
+         hitLvl  = L.seg[j].level0;
+         break;
+        }
      }
 
    if(!nearAny)
@@ -443,22 +488,250 @@ bool PhPriceSR_LoopSharpBounceUp(SPhPriceSR &st,SPhWalk &w,const SPhConfig &cfg,
       w.loopSrIsSup = true;
       w.loopSrLvl   = hitLvl;
       w.loopSrPark  = 1;
+      if(v > vOlder)
+        {
+         PhWalkClearLoopSr(w);
+         return(true);
+        }
       return(false);
      }
 
    w.loopSrPark++;
-   if(w.loopSrPark > PH_LOOP_SR_STAY)
-     {
-      PhWalkClearLoopSr(w);
-      return(false);
-     }
-
    if(v > vOlder)
      {
       PhWalkClearLoopSr(w);
       return(true);
      }
    return(false);
+  }
+
+bool PhStay_LoopHasSupBelow35(SPhPriceSR &psr,SPhSRList &L,SPhWalk &w,const SPhConfig &cfg)
+  {
+   for(int i = 0; i < psr.count; i++)
+     {
+      if(!psr.lvl[i].isSupport) continue;
+      if(psr.lvl[i].level < cfg.bullHard + 1e-9)
+         return(true);
+     }
+   if(w.invOn && w.invLevel < cfg.bullHard + 1e-9)
+      return(true);
+   for(int j = 0; j < L.count; j++)
+     {
+      if(!L.seg[j].isSupport) continue;
+      if(L.seg[j].level0 < cfg.bullHard + 1e-9)
+         return(true);
+     }
+   return(false);
+  }
+
+bool PhStay_LoopHasResAbove65(SPhPriceSR &psr,SPhSRList &L,SPhWalk &w,const SPhConfig &cfg)
+  {
+   for(int i = 0; i < psr.count; i++)
+     {
+      if(psr.lvl[i].isSupport) continue;
+      if(psr.lvl[i].level + 1e-9 >= cfg.bearCap)
+         return(true);
+     }
+   if(w.invOn && w.invLevel + 1e-9 >= cfg.bearCap)
+      return(true);
+   for(int j = 0; j < L.count; j++)
+     {
+      if(L.seg[j].isSupport) continue;
+      if(L.seg[j].level0 + 1e-9 >= cfg.bearCap)
+         return(true);
+     }
+   return(false);
+  }
+
+double PhStay_LoopNearestResAbove65(SPhPriceSR &psr,SPhSRList &L,SPhWalk &w,const SPhConfig &cfg)
+  {
+   double hit = 0.0;
+   for(int i = 0; i < psr.count; i++)
+     {
+      if(psr.lvl[i].isSupport) continue;
+      if(psr.lvl[i].level + 1e-9 < cfg.bearCap) continue;
+      if(hit <= 0.0 || psr.lvl[i].level < hit)
+         hit = psr.lvl[i].level;
+     }
+   if(w.invOn && w.invLevel + 1e-9 >= cfg.bearCap)
+     {
+      if(hit <= 0.0 || w.invLevel < hit)
+         hit = w.invLevel;
+     }
+   for(int j = 0; j < L.count; j++)
+     {
+      if(L.seg[j].isSupport) continue;
+      if(L.seg[j].level0 + 1e-9 < cfg.bearCap) continue;
+      if(hit <= 0.0 || L.seg[j].level0 < hit)
+         hit = L.seg[j].level0;
+     }
+   return(hit);
+  }
+
+// fromLow: S&R through = dead; mere Above65 pe DIE nahi (warna 1 miss).
+// no S&R: sirf deep overshoot through. fromHigh: Below35 = dead
+void PhStay_LoopCheckFarKill(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cfg,
+                             const double v,const double vOlder)
+  {
+   if(w.loopDead || w.loopStep == 2 || w.loopPath == 0)
+      return;
+   if(w.loopPath > 0)
+     {
+      if(w.loopSrArmed || w.loopHiSeen)
+         return; // reject in progress
+      if(PhStay_LoopHasResAbove65(psr,L,w,cfg))
+        {
+         if(!PhStay_Above65(cfg,v))
+            return;
+         const double hit = PhStay_LoopNearestResAbove65(psr,L,w,cfg);
+         const double tol = MathMax(1.0,cfg.tol);
+         if(hit > 0.0 && v > hit + tol && v >= vOlder)
+            PhStay_LoopDie(w);
+         return;
+        }
+      // no S&R: 60-65 zone reject ko time do — sirf deep through
+      const double deep = cfg.bearCap + cfg.tol + PH_LOOP_OVERSHOOT;
+      if(v > deep && v >= vOlder)
+         PhStay_LoopDie(w);
+     }
+   else if(PhStay_Below35(cfg,v))
+      PhStay_LoopDie(w);
+  }
+
+bool PhStay_LoopHiReject(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,
+                         const SPhConfig &cfg,const double v,const double vOlder)
+  {
+   // agar 65+ pe real S&R hai → sharp reject; warna 60-65 hi S&R
+   if(PhStay_LoopHasResAbove65(psr,L,w,cfg))
+     {
+      if(PhPriceSR_LoopSharpRejectDown(psr,w,L,cfg,v,vOlder))
+         return(true);
+     }
+
+   const double lo = cfg.bearCapLo - cfg.tol - PH_LOOP_EDGE; // 59
+   const double hi = cfg.bearCap + cfg.tol + PH_LOOP_OVERSHOOT; // 65+slack
+   const bool   inHi = (v + 1e-9 >= lo && v <= hi + 1e-9);
+
+   // deep through bina zone/S&R reject
+   if(v > hi + 1e-9)
+     {
+      w.loopHiSeen = false;
+      return(false);
+     }
+
+   if(inHi)
+     {
+      w.loopHiSeen = true;
+      return(v < vOlder);
+     }
+   if(w.loopHiSeen && v < lo && v < vOlder)
+     {
+      w.loopHiSeen = false;
+      return(true);
+     }
+   if(v + 1e-9 < lo - 5.0)
+      w.loopHiSeen = false;
+   return(false);
+  }
+
+bool PhStay_LoopLoBounce(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,
+                         const SPhConfig &cfg,const double v,const double vOlder)
+  {
+   // 35 crossed / neeche = kabhi 1/2 nahi (S&R <35 pe bhi nahi)
+   if(PhStay_Below35(cfg,v))
+     {
+      w.loopLoSeen = false;
+      return(false);
+     }
+
+   // real S&R <35: sirf jab RSI pehle se 35-40 band mein ho
+   if(PhStay_In3540(cfg,v) && PhStay_LoopHasSupBelow35(psr,L,w,cfg))
+     {
+      if(PhPriceSR_LoopSharpBounceUp(psr,w,L,cfg,v,vOlder))
+         return(true);
+     }
+
+   // warna 35-40 hi S&R
+   const double bandHi = cfg.bullFloor + cfg.tol + PH_LOOP_EDGE; // 41
+   const bool   inLo   = PhStay_In3540(cfg,v);
+
+   if(inLo)
+     {
+      w.loopLoSeen = true;
+      return(v > vOlder);
+     }
+   if(w.loopLoSeen && v > bandHi && v > vOlder)
+     {
+      w.loopLoSeen = false;
+      return(true);
+     }
+   if(v > 50.0)
+      w.loopLoSeen = false;
+   return(false);
+  }
+
+int PhStay_LoopDrive(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cfg,
+                     const double v,const double vOlder,const datetime barT,
+                     const bool newBull,const bool newBear,
+                     const datetime divT,const double divRsi)
+  {
+   const bool just0 = PhStay_LoopTryMark0(w,cfg,v,newBull,newBear,divT,divRsi,barT);
+
+   if(w.loopDead)
+      return(0);
+
+   if(PhStay_LoopInvalidate1(w,cfg,v))
+      return(0);
+
+   // step 1 ke baad 35 cross/stay = 2 nahi (fromLow: 60-65→dump; fromHigh: 35-40 break)
+   // Div confirm late hoti — pehle bounce pe galat 2 rokne ke liye
+   if(w.loopStep == 1 && PhStay_Below35(cfg,v))
+     {
+      PhStay_LoopDie(w);
+      return(0);
+     }
+
+   if(just0)
+      return(0);
+
+   // pehle S&R arm / 1-2 advance — FarKill baad (warna Above65 pe DIE se pehle arm nahi hota)
+   if(w.loopStep == 0 && w.loopPath != 0)
+     {
+      if(w.loopPath > 0)
+        {
+         if(PhStay_LoopHiReject(w,psr,L,cfg,v,vOlder))
+            PhStay_LoopSet1(w,v,vOlder,true,barT);
+        }
+      else if(PhStay_LoopLoBounce(w,psr,L,cfg,v,vOlder))
+         PhStay_LoopSet1(w,v,vOlder,false,barT);
+     }
+
+   if(w.loopStep == 1 && w.loopStep1Time != barT)
+     {
+      if(w.loopPath > 0)
+        {
+         if(PhStay_Below35(cfg,v))
+           {
+            w.loopLoSeen = false;
+            return(0);
+           }
+         if(PhStay_LoopLoBounce(w,psr,L,cfg,v,vOlder))
+           {
+            PhStay_LoopComplete2(w,barT);
+            return(1);
+           }
+        }
+      else if(PhStay_LoopHiReject(w,psr,L,cfg,v,vOlder))
+        {
+         PhStay_LoopComplete2(w,barT);
+         return(-1);
+        }
+     }
+
+   if(w.loopStep != 2)
+      PhStay_LoopCheckFarKill(w,psr,L,cfg,v,vOlder);
+
+   return(0);
   }
 
 #endif

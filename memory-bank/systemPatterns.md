@@ -19,10 +19,10 @@ Experts/Phase/
 ```
 
 ## 0-1-2 loop
-**0** = regular Div only (restart/unlock; stamp 0). **1** same-side bounce ± PriceSR sharp. **2** opposite bounce ± PriceSR sharp → flip + latch (stamp).
-After 2, ignore opposite until next regular Div. No HUD. 1 invalid = stamp 1 remove, no 0 stamp.
-
-SELL: 1=60-65 / near-65 SR, 2=35-40 / near-35 SR→BUY. BUY: mirror.
+**0** = regular Div pivot only (not inside 35-40 / 60-65). New Div while at 1 = restart 0, never auto-2.
+**Path from Div RSI:** `<35` → 1 at 59-65 reject (or 65 sharp-down) → 2 at 35-41 bounce (or 35 sharp-up) → BUY. `>65` → 1 at 35-41 → 2 at 59-65 → SELL.
+Far-side close through (div-low then 65 / div-high then 35) without sharp reverse ≤3 bars → `loopDead` until next regular Div (no 1/2).
+1 and 2 never both in the same bounce band. PriceSR sharp only if RSI already in that band.
 
 ## Flow
 OnInit → IgniteHistory → freeze g_regimes + g_walk

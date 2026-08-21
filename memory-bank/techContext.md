@@ -21,7 +21,7 @@
 - FVG SL: `Include/Phase_FVG.mqh` (Future2EA port, no draw)
 
 ## Regime walk
-- `SPhWalk.loopStep` — 0-1-2: 0=regular Div (stamp), 1=same-side bounce ± PriceSR, 2=latched until next Div; no HUD
+- `SPhWalk.loopStep` / `loopPath` / `loopDead` — 0=regular Div; path from Div side; far-cross kills 1/2 until next Div
 - AdvanceBar: Div scan before regime step
 
 ## Compile

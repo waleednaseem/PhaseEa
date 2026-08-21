@@ -43,6 +43,15 @@ struct SPhBosWatch
    bool        brokenDone;     // break already signaled once
   };
 
+struct SPhRegDivEvt
+  {
+   datetime t;
+   double   rsi;
+   bool     bull;
+  };
+
+#define PH_REG_DIV_MAX 256
+
 struct SPhDivState
   {
    SPh_Pivot highPivots[];
@@ -59,6 +68,12 @@ struct SPhDivState
    bool      newBosBreakBull;  // pending bull Div BOS broken this poll
    SPhBosWatch watchBear;
    SPhBosWatch watchBull;
+   datetime  lastRegTime;
+   double    lastRegRsi;
+   bool      lastRegBull;
+   // ignite 0-1-2 replay
+   SPhRegDivEvt regEvt[PH_REG_DIV_MAX];
+   int          regEvtN;
   };
 
 void PhDiv_CfgDefault(SPhDivCfg &c)
@@ -133,6 +148,49 @@ void PhDiv_StateInit(SPhDivState &st)
    st.newBosBreakBull = false;
    PhDiv_ClearBosWatch(st.watchBear);
    PhDiv_ClearBosWatch(st.watchBull);
+   st.lastRegTime = 0;
+   st.lastRegRsi  = 0.0;
+   st.lastRegBull = false;
+   st.regEvtN     = 0;
+  }
+
+void PhDiv_PushRegEvt(SPhDivState &st,const datetime t,const double rsi,const bool bull)
+  {
+   if(t <= 0 || st.regEvtN >= PH_REG_DIV_MAX)
+      return;
+   for(int i = 0; i < st.regEvtN; i++)
+     {
+      if(st.regEvt[i].t == t && st.regEvt[i].bull == bull)
+         return;
+     }
+   st.regEvt[st.regEvtN].t    = t;
+   st.regEvt[st.regEvtN].rsi  = rsi;
+   st.regEvt[st.regEvtN].bull = bull;
+   st.regEvtN++;
+  }
+
+bool PhDiv_MatchRegAt(SPhDivState &st,const datetime barT,
+                      bool &newBull,bool &newBear,datetime &divT,double &divRsi)
+  {
+   newBull = false;
+   newBear = false;
+   divT    = 0;
+   divRsi  = 0.0;
+   if(barT <= 0)
+      return(false);
+   for(int i = 0; i < st.regEvtN; i++)
+     {
+      if(st.regEvt[i].t != barT)
+         continue;
+      divT   = st.regEvt[i].t;
+      divRsi = st.regEvt[i].rsi;
+      if(st.regEvt[i].bull)
+         newBull = true;
+      else
+         newBear = true;
+      return(true);
+     }
+   return(false);
   }
 
 void PhDiv_ClearTradeFlags(SPhDivState &st)
@@ -202,8 +260,14 @@ void PhDiv_OnNewPivotHigh(SPhDivState &st,const SPhDivCfg &cfg,const SPh_Pivot &
                                 cfg.bearClr,cfg.bullClr,
                                 cfg.hidBearClr,cfg.hidBullClr,
                                 cfg.lineWidth,cfg.showLines);
+         PhDiv_PushRegEvt(st,all[primary].pivotB.time,all[primary].pivotB.rsi,false);
          if(st.liveTradeFlags)
+           {
             st.newRegularBear = true;
+            st.lastRegTime = all[primary].pivotB.time;
+            st.lastRegRsi  = all[primary].pivotB.rsi;
+            st.lastRegBull = false;
+           }
          if(cfg.showBos)
             Ph_DrawBos(0,all[primary],_Period,cfg.bosMaxCandles,cfg.bosMode);
          if(st.liveTradeFlags)
@@ -257,8 +321,14 @@ void PhDiv_OnNewPivotLow(SPhDivState &st,const SPhDivCfg &cfg,const SPh_Pivot &p
                                 cfg.bearClr,cfg.bullClr,
                                 cfg.hidBearClr,cfg.hidBullClr,
                                 cfg.lineWidth,cfg.showLines);
+         PhDiv_PushRegEvt(st,all[primary].pivotB.time,all[primary].pivotB.rsi,true);
          if(st.liveTradeFlags)
+           {
             st.newRegularBull = true;
+            st.lastRegTime = all[primary].pivotB.time;
+            st.lastRegRsi  = all[primary].pivotB.rsi;
+            st.lastRegBull = true;
+           }
          if(cfg.showBos)
             Ph_DrawBos(0,all[primary],_Period,cfg.bosMaxCandles,cfg.bosMode);
          if(st.liveTradeFlags)
@@ -334,6 +404,7 @@ void PhDiv_ScanHistory(SPhDivState &st,const SPhDivCfg &cfg)
    ArrayResize(st.highPivots,0);
    ArrayResize(st.lowPivots,0);
    st.liveTradeFlags = false;
+   st.regEvtN = 0;
    PhDiv_ClearTradeFlags(st);
    PhDiv_ClearBosWatch(st.watchBear);
    PhDiv_ClearBosWatch(st.watchBull);

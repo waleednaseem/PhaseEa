@@ -1,9 +1,9 @@
 # Phase — Project Intelligence
 
 ## Product
-RSI regime EA: visual + live bounce trades (v1.54).
+RSI regime EA: visual + live bounce trades (v1.58).
 
-## Regime (v1.54 0-1-2 — Regular Div = 0)
+## Regime (v1.58 0-1-2 — path = regular Div side)
 - OnInit: ONE 500-bar walk (ignite) → freeze `g_regimes` + keep `g_walk`
 - New bar: `RunDivScan` → `PhRegimeAdvance` only — never rebuild past colours
 - Regime INV S&R on (`PhInv_*`) + PriceSR dotted `<35` / `>65` for sharp loop
@@ -11,15 +11,19 @@ RSI regime EA: visual + live bounce trades (v1.54).
   - **65** cross + (60-65 bounce OR upar chhota u-turn bounce) → BUY
   - **35** cross + (35-40 bounce OR neeche chhota u-turn) → SELL
   - Spike bina bounce = no flip; <60 / >40 → cancel arm
-  - **0-1-2 loop** (`w.loopStep`):
-    - **0** stamp = **sirf regular Div** (RSI 35-65 bahar se 0 nahi)
-    - SELL: **1** = 59–65 bounce-down (59=60) **ya** near-65 PriceSR sharp → **2** = 35–41 bounce (41=40) **ya** near-35 PriceSR sharp → BUY latch
-    - BUY: **1** = 35–41 bounce-up **ya** near-35 PriceSR sharp → **2** = 59–65 bounce **ya** near-65 PriceSR sharp → SELL latch
+  - **0-1-2 loop** (`w.loopStep` / `loopPath` / `loopDead`):
+    - **0** = **sirf regular Div** (pivot stamp; 35-40 / 60-65 andar 0 nahi). HD kabhi 0 nahi
+    - **1 ke baad naya regular Div = naya 0**, 2 nahi
+    - **Div <35:** **1** = 59–65 reject/bounce **ya** 65 sharp-down ≤3; **2** = 35–41 bounce **ya** 35 sharp-up → BUY latch
+    - **Div >65:** **1** = 35–41 bounce **ya** 35 sharp-up; **2** = 59–65 reject **ya** 65 sharp-down → SELL latch
+    - 1 aur 2 **opposite** zones only — ek band (35-40 ya 60-65) mein dono nahi
+    - **Virtual S&R:** no S&R <35 → **35–40 = S&R** (35 through = no 1/2). No S&R >65 → **60–65 = S&R**. Real PriceSR/INV pehle; S&R>65 pe mere Above65 DIE nahi — touch+reject=1, through=dead
     - After 2: opposite 35/65 ignore until next **regular Div (=0)**
-    - **2 ke baad 50 (sirf 012 complete):** 50 tag, phir reject DOWN → SELL / bounce UP → BUY (overshoot 50–65 OK). HD kabhi 0 nahi
+    - **2 ke baad 50-zone 44–54 (yellow):** wait bounce/reject andar → flip; **>54 / <44 through** bina bounce = no flip. Classic 35/65 latch block until next Div
     - Same bar pe 0→1 ya 1→2 nahi; HUD nahi (sirf chart+RSI stamps)
-    - Sharp = reverse ≤3 bars; park/stay on S&R = no count
-    - **1 invalidate:** 1 stamp hataye, **0 stamp nahi**
+ - Sharp = reverse ≤3 bars; park/stay on S&R = no count
+ - **1 + Below35:** DIE (fromLow 60-65 ke baad dump / fromHigh 35-40 break) — Div confirm late se pehle galat **2** nahi. Mark0 agar 2 pivot ke baad tha to 2 stamp delete
+ - **1 invalidate (extreme):** 1 stamp hataye, **0 stamp nahi**. Far-dead: 1 bhi hataye
 - Price Div / BOS lines do **not** flip regime (regular Div only restarts loop)
 
 ## Trade (v1.47)
@@ -52,7 +56,7 @@ RSI regime EA: visual + live bounce trades (v1.54).
 ## Divergence / BOS / HD (v1.46)
 - Regular Div: nearest RSI tops/bottoms; 1st >60/<45; 2nd dead-zone bahar; path clean; nearest draw
 - HD: nearest-in-time RSI extrema; 35–65; min ΔRSI; no BOS
-- Phase_RSI: levels 20/35/40/50/60/65/80 all white solid
+- Phase_RSI: levels 20/35/40/**44 yellow**/50/**54 yellow**/60/65/80
 - Live flags: `newRegular*` / `newHidden*` / **`newBosBreakBear|Bull`** (pending primary BOS watch)
 - Trade BOS watch armed even if `InpShowBos` false (draw optional)
 

@@ -12,43 +12,21 @@ void PhBuy_TrackFloor(SPhWalk &w,const SPhConfig &cfg,const double v,const doubl
   {
   }
 
-bool PhBuy_Process(SPhWalk &w,SPhPriceSR &psr,const SPhConfig &cfg,
+bool PhBuy_Process(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cfg,
                    const double v,const double vOlder,const datetime barT,
-                   const bool canFlip,const bool newRegularDiv,bool &fromBounce)
+                   const bool canFlip,const bool newBull,const bool newBear,
+                   const datetime divT,const double divRsi,bool &fromBounce)
   {
    fromBounce = false;
-   const bool just0 = PhStay_LoopTryMark0(w,newRegularDiv);
-
-   if(PhStay_LoopInvalidate1(w,cfg,v))
-      return(false);
-
-   if(w.loopStep == 0 && !just0)
+   const int want = PhStay_LoopDrive(w,psr,L,cfg,v,vOlder,barT,newBull,newBear,divT,divRsi);
+   if(want < 0)
      {
-      if(PhStay_BounceBuyFrom3540(w,cfg,v,vOlder))
-         PhStay_LoopSet1(w,v,vOlder,false,barT);
-      else if(PhPriceSR_LoopSharpBounceUp(psr,w,cfg,v,vOlder))
-         PhStay_LoopSet1(w,v,vOlder,false,barT);
+      fromBounce = true;
+      return(true);
      }
 
-   if(w.loopStep == 1 && w.loopStep1Time != barT)
-     {
-      if(PhStay_BounceSellFrom6065(w,cfg,v,vOlder))
-        {
-         fromBounce = true;
-         w.loopEvt2 = true;
-         w.loop50Ready = true;
-         return(true);
-        }
-      if(PhPriceSR_LoopSharpRejectDown(psr,w,cfg,v,vOlder))
-        {
-         fromBounce = true;
-         w.loopEvt2 = true;
-         w.loop50Ready = true;
-         return(true);
-        }
-     }
-
-   if(w.loopStep == 2)
+   // 2 ke baad: 50 reject DOWN → SELL (latch ke bawajood)
+   if(w.loopLatch || w.loopStep == 2)
      {
       if(PhStay_RejectSellFrom50(w,cfg,v,vOlder))
         {
@@ -56,6 +34,9 @@ bool PhBuy_Process(SPhWalk &w,SPhPriceSR &psr,const SPhConfig &cfg,
          return(true);
         }
      }
+
+   if(w.loopLatch)
+      return(false);
 
    return(PhStay_SellConfirm(w,cfg,v,vOlder,canFlip));
   }

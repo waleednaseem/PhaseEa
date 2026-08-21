@@ -8,7 +8,7 @@ RSI-based **regime Expert Advisor** for MetaTrader 5. Detects bullish/bearish ph
 2. RSI(14); BUY green / SELL red / END grey on flips
 3. History strips + body boxes + Phase_RSI levels
 4. Bounce + price-S&R entries; Div/HD unlock; FVG dyn SL
-5. **0-1-2 loop:** 0=regular Div only; 1-2 bounce ± PriceSR sharp; step 2 flip+latch
+5. **0-1-2 loop:** 0=regular Div only (not in 35-40/60-65); path from Div side; 1 then 2 opposite zones; far-cross invalidates until next Div
 
 ## Non-goals
 Docker, modifying sibling EAs, martingale/trailing, FVG chart paint (for now).

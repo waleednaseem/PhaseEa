@@ -283,11 +283,25 @@ void PhPaintRsiSR(const SPhSRList &L,const int rsiWindow,
      }
   }
 
+void PhLoopStampClearAll()
+  {
+   ObjectsDeleteAll(0,g_phPrefix + "LpC_");
+   ObjectsDeleteAll(0,g_phPrefix + "LpR_");
+  }
+
 color PhLoopStepColor(const int step)
   {
    if(step == 0) return clrYellow;
    if(step == 1) return clrAqua;
    return clrOrange;
+  }
+
+string PhLoopStampText(const int step,const int path)
+  {
+   if(step == 0) return "0 DIV";
+   if(step == 1)
+      return(path > 0 ? "1 60-65" : "1 35-40");
+   return(path > 0 ? "2 35-40" : "2 60-65");
   }
 
 void PhLoopStampDelete(const datetime barT,const int step,const int rsiWindow)
@@ -300,21 +314,21 @@ void PhLoopStampDelete(const datetime barT,const int step,const int rsiWindow)
   }
 
 void PhLoopStampOne(const int step,const datetime barT,const double priceY,
-                    const double rsiY,const int rsiWindow)
+                    const double rsiY,const int rsiWindow,const int path)
   {
    if(barT <= 0 || step < 0 || step > 2)
       return;
-   const string dig = IntegerToString(step);
+   const string txt = PhLoopStampText(step,path);
    const color  clr = PhLoopStepColor(step);
-   const string id  = dig + "_" + IntegerToString((int)barT);
+   const string id  = IntegerToString(step) + "_" + IntegerToString((int)barT);
 
    string nm = g_phPrefix + "LpC_" + id;
    ObjectDelete(0,nm);
    if(ObjectCreate(0,nm,OBJ_TEXT,0,barT,priceY))
      {
-      ObjectSetString(0,nm,OBJPROP_TEXT,dig);
+      ObjectSetString(0,nm,OBJPROP_TEXT,txt);
       ObjectSetInteger(0,nm,OBJPROP_COLOR,clr);
-      ObjectSetInteger(0,nm,OBJPROP_FONTSIZE,11);
+      ObjectSetInteger(0,nm,OBJPROP_FONTSIZE,9);
       ObjectSetString(0,nm,OBJPROP_FONT,"Arial Bold");
       ObjectSetInteger(0,nm,OBJPROP_ANCHOR,ANCHOR_LOWER);
       ObjectSetInteger(0,nm,OBJPROP_SELECTABLE,false);
@@ -327,9 +341,9 @@ void PhLoopStampOne(const int step,const datetime barT,const double priceY,
       ObjectDelete(0,nr);
       if(ObjectCreate(0,nr,OBJ_TEXT,rsiWindow,barT,rsiY))
         {
-         ObjectSetString(0,nr,OBJPROP_TEXT,dig);
+         ObjectSetString(0,nr,OBJPROP_TEXT,txt);
          ObjectSetInteger(0,nr,OBJPROP_COLOR,clr);
-         ObjectSetInteger(0,nr,OBJPROP_FONTSIZE,10);
+         ObjectSetInteger(0,nr,OBJPROP_FONTSIZE,8);
          ObjectSetString(0,nr,OBJPROP_FONT,"Arial Bold");
          ObjectSetInteger(0,nr,OBJPROP_ANCHOR,ANCHOR_LOWER);
          ObjectSetInteger(0,nr,OBJPROP_SELECTABLE,false);
@@ -349,23 +363,35 @@ void PhPaintLoopStep(SPhWalk &w,const datetime barT,
       PhLoopStampDelete(w.loopKill1Time,1,rsiWindow);
       w.loopKill1Time = 0;
      }
+   if(w.loopKill2Time > 0)
+     {
+      PhLoopStampDelete(w.loopKill2Time,2,rsiWindow);
+      w.loopKill2Time = 0;
+     }
 
    if(w.loopEvt0)
      {
-      const double py = (rsiY >= 50.0 ? priceHi : priceLo);
-      PhLoopStampOne(0,barT,py,rsiY,rsiWindow);
+      datetime t0 = (w.loopEvt0Time > 0 ? w.loopEvt0Time : barT);
+      double   ry = (w.loopEvt0Rsi > 0.0 ? w.loopEvt0Rsi : rsiY);
+      int      sh = iBarShift(_Symbol,_Period,t0,false);
+      double   py = priceHi;
+      if(sh >= 0)
+         py = (ry >= 50.0 ? iHigh(_Symbol,_Period,sh) : iLow(_Symbol,_Period,sh));
+      else
+         py = (ry >= 50.0 ? priceHi : priceLo);
+      PhLoopStampOne(0,t0,py,ry,rsiWindow,w.loopPath);
       w.loopEvt0 = false;
      }
    if(w.loopEvt1)
      {
       const double py = (w.loopStep1Peak ? priceHi : priceLo);
-      PhLoopStampOne(1,barT,py,rsiY,rsiWindow);
+      PhLoopStampOne(1,barT,py,rsiY,rsiWindow,w.loopPath);
       w.loopEvt1 = false;
      }
    if(w.loopEvt2)
      {
       const double py = (w.state == PH_BULLISH ? priceLo : priceHi);
-      PhLoopStampOne(2,barT,py,rsiY,rsiWindow);
+      PhLoopStampOne(2,barT,py,rsiY,rsiWindow,w.loopPath);
       w.loopEvt2 = false;
      }
   }

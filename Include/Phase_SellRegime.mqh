@@ -12,43 +12,21 @@ void PhSell_TrackCap(SPhWalk &w,const SPhConfig &cfg,const double v)
   {
   }
 
-bool PhSell_Process(SPhWalk &w,SPhPriceSR &psr,const SPhConfig &cfg,
+bool PhSell_Process(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cfg,
                     const double v,const double vOlder,const datetime barT,
-                    const bool canFlip,const bool newRegularDiv,bool &fromBounce)
+                    const bool canFlip,const bool newBull,const bool newBear,
+                    const datetime divT,const double divRsi,bool &fromBounce)
   {
    fromBounce = false;
-   const bool just0 = PhStay_LoopTryMark0(w,newRegularDiv);
-
-   if(PhStay_LoopInvalidate1(w,cfg,v))
-      return(false);
-
-   if(w.loopStep == 0 && !just0)
+   const int want = PhStay_LoopDrive(w,psr,L,cfg,v,vOlder,barT,newBull,newBear,divT,divRsi);
+   if(want > 0)
      {
-      if(PhStay_BounceSellFrom6065(w,cfg,v,vOlder))
-         PhStay_LoopSet1(w,v,vOlder,true,barT);
-      else if(PhPriceSR_LoopSharpRejectDown(psr,w,cfg,v,vOlder))
-         PhStay_LoopSet1(w,v,vOlder,true,barT);
+      fromBounce = true;
+      return(true);
      }
 
-   if(w.loopStep == 1 && w.loopStep1Time != barT)
-     {
-      if(PhStay_BounceBuyFrom3540(w,cfg,v,vOlder))
-        {
-         fromBounce = true;
-         w.loopEvt2 = true;
-         w.loop50Ready = true;
-         return(true);
-        }
-      if(PhPriceSR_LoopSharpBounceUp(psr,w,cfg,v,vOlder))
-        {
-         fromBounce = true;
-         w.loopEvt2 = true;
-         w.loop50Ready = true;
-         return(true);
-        }
-     }
-
-   if(w.loopStep == 2)
+   // 2 ke baad: 50 bounce UP → BUY (latch ke bawajood)
+   if(w.loopLatch || w.loopStep == 2)
      {
       if(PhStay_BounceBuyFrom50(w,cfg,v,vOlder))
         {
@@ -57,7 +35,9 @@ bool PhSell_Process(SPhWalk &w,SPhPriceSR &psr,const SPhConfig &cfg,
         }
      }
 
-   // Classic 65 confirm — regime flip (latch does not block)
+   if(w.loopLatch)
+      return(false);
+
    return(PhStay_BuyConfirm(w,cfg,v,vOlder,canFlip));
   }
 

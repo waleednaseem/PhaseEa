@@ -2,7 +2,7 @@
 //|                                                       Phase.mq5  |
 //+------------------------------------------------------------------+
 #property copyright "Phase"
-#property version   "1.54"
+#property version   "1.58"
 
 #include "Include/Phase_Types.mqh"
 #include "Include/Phase_Regime.mqh"
@@ -81,8 +81,8 @@ input double             InpBookBaseBal       = 0;      // unused — day balanc
 input double             InpBookProfitPct     = 5.0;    // CloseAll float ≥ this % of today's auto bal
 input double             InpBookProfitPct2    = 2.0;    // book % after overall +InpBookTightenAtPct
 input double             InpBookTightenAtPct  = 15.0;   // overall +this % vs run start → use Pct2
-input double             InpDailyProfitPct    = 10.0;   // today +this % of auto bal → stop until next day (0=off)
-input double             InpDailyLossPct      = 10.0;   // today -this % of auto bal → stop until next day (0=off)
+input double             InpDailyProfitPct    = 0;   // today +this % of auto bal → stop until next day (0=off)
+input double             InpDailyLossPct      = 0;   // today -this % of auto bal → stop until next day (0=off)
 
 input group "=== FVG ==="
 input bool               InpShowFvg             = true;
@@ -412,11 +412,29 @@ void IgniteHistory()
    ArrayResize(g_regimes,hist + 1);
    ArrayInitialize(g_regimes,(int)PH_NEUTRAL);
    PhPriceSR_Scan(g_priceSR,g_rsi,g_times,g_rsiWindow,InpPriceSRBars,2,InpShowPriceSR);
-   PhBuildRegimes(g_rsi,g_times,hist,g_cfg,g_regimes,g_srList,g_walk,g_priceSR);
+   // Div pehle — 0-1-2 history replay ke liye regEvt
+   RunDivScan(true);
+   PhLoopStampClearAll();
+   PhWalkReset(g_walk);
+   PhSRListClear(g_srList);
+   for(int shift = hist; shift >= 1; shift--)
+     {
+      bool nb = false, nr = false;
+      datetime dt = 0;
+      double   dr = 0.0;
+      PhDiv_MatchRegAt(g_div,g_times[shift],nb,nr,dt,dr);
+      PhRegimeStep(g_walk,g_srList,g_priceSR,g_rsi,g_times,shift,hist,g_cfg,
+                   nb,nr,dt,dr,g_regimes);
+      const datetime bt = g_times[shift];
+      double hi = iHigh(_Symbol,_Period,shift);
+      double lo = iLow(_Symbol,_Period,shift);
+      if(hi <= 0.0) hi = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+      if(lo <= 0.0) lo = hi;
+      PhPaintLoopStep(g_walk,bt,hi,lo,g_rsi[shift],g_rsiWindow);
+     }
    g_ignited = true;
    PaintAll(hist);
-   RunDivScan(true);
-   Print("Phase: ignited ",hist," bars + Div/BOS/HD");
+   Print("Phase: ignited ",hist," bars + Div/BOS/HD + loop012 evts=",g_div.regEvtN);
   }
 
 void AdvanceBar()
@@ -435,8 +453,9 @@ void AdvanceBar()
    // Div pehle — regular Div = loopStep 0; flags trade rescue ke liye bhi
    RunDivScan(false);
    PhPriceSR_Scan(g_priceSR,g_rsi,g_times,g_rsiWindow,InpPriceSRBars,2,InpShowPriceSR);
-   const bool newRegDiv = (g_div.newRegularBull || g_div.newRegularBear);
-   PhRegimeAdvance(g_walk,g_srList,g_priceSR,g_rsi,g_times,hist,g_cfg,newRegDiv,g_regimes);
+   PhRegimeAdvance(g_walk,g_srList,g_priceSR,g_rsi,g_times,hist,g_cfg,
+                   g_div.newRegularBull,g_div.newRegularBear,
+                   g_div.lastRegTime,g_div.lastRegRsi,g_regimes);
    ApplyTradeExitsAndEntries();
    PaintAll(hist);
    ApplyDivTradeExits();
