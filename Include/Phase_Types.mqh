@@ -72,6 +72,9 @@ struct SPhWalk
    int      loopFarAge;
    bool     loopHiSeen;     // tagged 59-65, wait reject down
    bool     loopLoSeen;     // tagged 35-40, wait bounce up
+   bool     loopLoCross;    // 35 cross — sharp-up ≤3 bars
+   int      loopLoCrossAge;
+   double   loopLoCrossExt;
    // Sharp S&R (PriceSR dotted) for loop step 1/2 — stay = park too long
    bool     loopSrArmed;
    bool     loopSrIsSup;
@@ -186,6 +189,9 @@ void PhWalkReset(SPhWalk &w)
    w.loopFarAge       = 0;
    w.loopHiSeen       = false;
    w.loopLoSeen       = false;
+   w.loopLoCross      = false;
+   w.loopLoCrossAge   = 0;
+   w.loopLoCrossExt   = 0.0;
    w.loopSrArmed      = false;
    w.loopSrIsSup      = false;
    w.loopSrLvl        = 0.0;
@@ -237,6 +243,13 @@ void PhWalkClearLoopStep1(SPhWalk &w)
    w.loopStep1Time = 0;
   }
 
+void PhWalkClearLoopLoCross(SPhWalk &w)
+  {
+   w.loopLoCross    = false;
+   w.loopLoCrossAge = 0;
+   w.loopLoCrossExt = 0.0;
+  }
+
 void PhWalkClearZoneStay(SPhWalk &w)
   {
    PhWalkClearZoneBuy(w);
@@ -275,10 +288,11 @@ void PhWalkClearInv(SPhWalk &w)
 #define PH_LOOP_SR_STAY  3
 #define PH_LOOP_OVERSHOOT 3.0
 #define PH_LOOP_EDGE     1.0  // 59=60, 41=40 — loop 1/2 merge
+#define PH_LOOP_SHARP_BARS 3  // sharp reverse max bars (35-up / 65-down)
 #define PH_LOOP_50       50.0
-#define PH_LOOP_50_LO    44.0   // 50-zone low (yellow)
-#define PH_LOOP_50_HI    54.0   // 50-zone high (yellow)
-#define PH_LOOP_50_BAND  6.0    // legacy half-width (~44–56); prefer LO/HI
+#define PH_LOOP_50_LO    48.0   // 50-zone low (yellow)
+#define PH_LOOP_50_HI    53.0   // 50-zone high (yellow)
+#define PH_LOOP_50_BAND  2.5    // legacy half-width (~48–53); prefer LO/HI
 
 bool PhStay_Above65(const SPhConfig &cfg,const double v)
   {
@@ -336,6 +350,7 @@ void PhStay_LoopDie(SPhWalk &w)
    w.loopFarAge    = 0;
    w.loopHiSeen    = false;
    w.loopLoSeen    = false;
+   PhWalkClearLoopLoCross(w);
    w.loopStep      = 0;
    w.loop50Ready   = false;
    w.loop50Armed   = false;
@@ -359,6 +374,7 @@ void PhStay_LoopComplete2(SPhWalk &w,const datetime barT)
    w.loopFarAge    = 0;
    w.loopHiSeen    = false;
    w.loopLoSeen    = false;
+   PhWalkClearLoopLoCross(w);
    w.zOppBuyArmed  = false;
    w.zOppSellArmed = false;
    PhWalkClearLoopSr(w);
@@ -383,6 +399,7 @@ bool PhStay_LoopTryMark0(SPhWalk &w,const SPhConfig &cfg,const double v,
    w.loopFarAge    = 0;
    w.loopHiSeen    = false;
    w.loopLoSeen    = false;
+   PhWalkClearLoopLoCross(w);
    w.loopStep      = 0;
    w.loop50Ready   = false;
    w.loop50Armed   = false;
@@ -422,8 +439,56 @@ void PhStay_LoopSet1(SPhWalk &w,const double v,const double vOlder,
    w.loopEvt1      = true;
    w.loopFarAge    = 0;
    w.loopHiSeen    = false;
+   PhWalkClearLoopLoCross(w);
    Print("Phase Loop: 1 ",(isPeakReject ? "60-65" : "35-40"),
          " path=",w.loopPath," rsi=",DoubleToString(v,1)," @ ",TimeToString(barT));
+  }
+
+// 35 cross → sharp-up ≤3 bars (step 1 path>65 / step 2 path<35)
+bool PhStay_LoopLoSharpUp(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
+  {
+   const double lvl35 = cfg.bullHard - cfg.tol;
+
+   if(vOlder + 1e-9 >= lvl35 && v <= lvl35 + 1e-9)
+     {
+      w.loopLoCross    = true;
+      w.loopLoCrossAge = 1;
+      w.loopLoCrossExt = v;
+      return(false);
+     }
+
+   if(!w.loopLoCross)
+     {
+      if(PhStay_Below35(cfg,v))
+        {
+         w.loopLoCross    = true;
+         w.loopLoCrossAge = 1;
+         w.loopLoCrossExt = v;
+        }
+      return(false);
+     }
+
+   w.loopLoCrossAge++;
+   w.loopLoCrossExt = MathMin(w.loopLoCrossExt,v);
+
+   if(v > vOlder)
+     {
+      const double minUp = MathMax(1.0,cfg.tol);
+      if(v > lvl35 + 1e-9 || v >= w.loopLoCrossExt + minUp)
+        {
+         PhWalkClearLoopLoCross(w);
+         return(true);
+        }
+     }
+
+   if(w.loopLoCrossAge > PH_LOOP_SHARP_BARS)
+      return(false);
+   return(false);
+  }
+
+bool PhStay_LoopLoSharpTimedOut(SPhWalk &w)
+  {
+   return(w.loopLoCross && w.loopLoCrossAge > PH_LOOP_SHARP_BARS);
   }
 
 // While at 1: peak break UP / trough break DOWN → wapas wait (1 stamp hataye, 0 stamp nahi)
@@ -524,12 +589,12 @@ bool PhStay_BounceSellFrom6065(SPhWalk &w,const SPhConfig &cfg,const double v,co
 
 bool PhStay_BounceBuyFrom50(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
   {
-   // SELL after 2: wait 44–54 bounce UP → BUY. Through <44 = no flip.
+   // SELL after 2: wait 48–53 bounce UP → BUY. Through <48 = no flip.
    if(!w.loop50Ready)
       return(false);
    const double mid = PH_LOOP_50;
-   const double lo  = PH_LOOP_50_LO; // 44
-   const double hi  = PH_LOOP_50_HI; // 54
+   const double lo  = PH_LOOP_50_LO; // 48
+   const double hi  = PH_LOOP_50_HI; // 53
 
    if(v + 1e-9 < lo && !w.loop50Armed)
      {
@@ -564,7 +629,7 @@ bool PhStay_BounceBuyFrom50(SPhWalk &w,const SPhConfig &cfg,const double v,const
 
 bool PhStay_RejectSellFrom50(SPhWalk &w,const SPhConfig &cfg,const double v,const double vOlder)
   {
-   // BUY after 2: wait 44–54 reject DOWN → SELL. Through >54 = no flip.
+   // BUY after 2: wait 48–53 reject DOWN → SELL. Through >53 = no flip.
    if(!w.loop50Ready)
       return(false);
    const double mid = PH_LOOP_50;

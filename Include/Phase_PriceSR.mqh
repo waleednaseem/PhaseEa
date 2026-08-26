@@ -570,11 +570,28 @@ double PhStay_LoopNearestResAbove65(SPhPriceSR &psr,SPhSRList &L,SPhWalk &w,cons
 
 // fromLow: S&R through = dead; mere Above65 pe DIE nahi (warna 1 miss).
 // no S&R: sirf deep overshoot through. fromHigh: Below35 = dead
+// + 0 DIV extreme break: path-1 peak up / path+1 trough down → DIE (step 0/1)
 void PhStay_LoopCheckFarKill(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cfg,
                              const double v,const double vOlder)
   {
    if(w.loopDead || w.loopStep == 2 || w.loopPath == 0)
       return;
+
+   if((w.loopStep == 0 || w.loopStep == 1) && w.loopEvt0Rsi > 0.0)
+     {
+      const double tol = MathMax(0.5,cfg.tol);
+      if(w.loopPath < 0 && v > w.loopEvt0Rsi + tol)
+        {
+         PhStay_LoopDie(w);
+         return;
+        }
+      if(w.loopPath > 0 && v < w.loopEvt0Rsi - tol)
+        {
+         PhStay_LoopDie(w);
+         return;
+        }
+     }
+
    if(w.loopPath > 0)
      {
       if(w.loopSrArmed || w.loopHiSeen)
@@ -594,8 +611,14 @@ void PhStay_LoopCheckFarKill(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhCo
       if(v > deep && v >= vOlder)
          PhStay_LoopDie(w);
      }
-   else if(PhStay_Below35(cfg,v))
-      PhStay_LoopDie(w);
+   else if(w.loopPath < 0)
+     {
+      // fromHigh: step1 ke baad 35 cross = dead; step0 pe sharp-up try
+      if(w.loopStep >= 1 && PhStay_Below35(cfg,v))
+         PhStay_LoopDie(w);
+      else if(w.loopStep == 0 && PhStay_LoopLoSharpTimedOut(w))
+         PhStay_LoopDie(w);
+     }
   }
 
 bool PhStay_LoopHiReject(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,
@@ -608,7 +631,7 @@ bool PhStay_LoopHiReject(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,
          return(true);
      }
 
-   const double lo = cfg.bearCapLo - cfg.tol - PH_LOOP_EDGE; // 59
+   const double lo = cfg.bearCapLo - PH_LOOP_EDGE; // 59 — 60 touch nahi, 59 OK
    const double hi = cfg.bearCap + cfg.tol + PH_LOOP_OVERSHOOT; // 65+slack
    const bool   inHi = (v + 1e-9 >= lo && v <= hi + 1e-9);
 
@@ -619,12 +642,14 @@ bool PhStay_LoopHiReject(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,
       return(false);
      }
 
+   if(v + 1e-9 >= lo)
+      w.loopHiSeen = true;
+
    if(inHi)
      {
-      w.loopHiSeen = true;
       return(v < vOlder);
      }
-   if(w.loopHiSeen && v < lo && v < vOlder)
+   if(w.loopHiSeen && v < vOlder)
      {
       w.loopHiSeen = false;
       return(true);
@@ -637,12 +662,17 @@ bool PhStay_LoopHiReject(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,
 bool PhStay_LoopLoBounce(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,
                          const SPhConfig &cfg,const double v,const double vOlder)
   {
-   // 35 crossed / neeche = kabhi 1/2 nahi (S&R <35 pe bhi nahi)
+   // 35 sharp-up: cross neeche → fori reverse ≤3 bars
+   if(PhStay_LoopLoSharpUp(w,cfg,v,vOlder))
+      return(true);
+
    if(PhStay_Below35(cfg,v))
      {
       w.loopLoSeen = false;
       return(false);
      }
+
+   PhWalkClearLoopLoCross(w);
 
    // real S&R <35: sirf jab RSI pehle se 35-40 band mein ho
    if(PhStay_In3540(cfg,v) && PhStay_LoopHasSupBelow35(psr,L,w,cfg))
@@ -683,9 +713,8 @@ int PhStay_LoopDrive(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cf
    if(PhStay_LoopInvalidate1(w,cfg,v))
       return(0);
 
-   // step 1 ke baad 35 cross/stay = 2 nahi (fromLow: 60-65→dump; fromHigh: 35-40 break)
-   // Div confirm late hoti — pehle bounce pe galat 2 rokne ke liye
-   if(w.loopStep == 1 && PhStay_Below35(cfg,v))
+   // step 1 ke baad 35 cross: sharp-up = 2; slow/stay = dead (path>0 only)
+   if(w.loopStep == 1 && w.loopPath < 0 && PhStay_Below35(cfg,v))
      {
       PhStay_LoopDie(w);
       return(0);
@@ -712,9 +741,19 @@ int PhStay_LoopDrive(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cf
         {
          if(PhStay_Below35(cfg,v))
            {
-            w.loopLoSeen = false;
+            if(PhStay_LoopLoSharpUp(w,cfg,v,vOlder))
+              {
+               PhStay_LoopComplete2(w,barT);
+               return(1);
+              }
+            if(PhStay_LoopLoSharpTimedOut(w))
+              {
+               PhStay_LoopDie(w);
+               return(0);
+              }
             return(0);
            }
+         PhWalkClearLoopLoCross(w);
          if(PhStay_LoopLoBounce(w,psr,L,cfg,v,vOlder))
            {
             PhStay_LoopComplete2(w,barT);

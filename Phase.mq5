@@ -2,7 +2,7 @@
 //|                                                       Phase.mq5  |
 //+------------------------------------------------------------------+
 #property copyright "Phase"
-#property version   "1.58"
+#property version   "1.61"
 
 #include "Include/Phase_Types.mqh"
 #include "Include/Phase_Regime.mqh"

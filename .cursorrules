@@ -19,8 +19,9 @@ RSI regime EA: visual + live bounce trades (v1.58).
     - 1 aur 2 **opposite** zones only — ek band (35-40 ya 60-65) mein dono nahi
     - **Virtual S&R:** no S&R <35 → **35–40 = S&R** (35 through = no 1/2). No S&R >65 → **60–65 = S&R**. Real PriceSR/INV pehle; S&R>65 pe mere Above65 DIE nahi — touch+reject=1, through=dead
     - After 2: opposite 35/65 ignore until next **regular Div (=0)**
-    - **2 ke baad 50-zone 44–54 (yellow):** wait bounce/reject andar → flip; **>54 / <44 through** bina bounce = no flip. Classic 35/65 latch block until next Div
+    - **2 ke baad 50-zone 48–53 (yellow):** wait bounce/reject andar → flip; **>53 / <48 through** bina bounce = no flip. Classic 35/65 latch block until next Div
     - Same bar pe 0→1 ya 1→2 nahi; HUD nahi (sirf chart+RSI stamps)
+    - **0 DIV extreme break (step 0/1):** path **-1** → RSI `> loopEvt0Rsi` = DIE; path **+1** → RSI `< loopEvt0Rsi` = DIE. Step 2 latch pe nahi; Mark0 bar pe nahi
  - Sharp = reverse ≤3 bars; park/stay on S&R = no count
  - **1 + Below35:** DIE (fromLow 60-65 ke baad dump / fromHigh 35-40 break) — Div confirm late se pehle galat **2** nahi. Mark0 agar 2 pivot ke baad tha to 2 stamp delete
  - **1 invalidate (extreme):** 1 stamp hataye, **0 stamp nahi**. Far-dead: 1 bhi hataye
@@ -56,7 +57,7 @@ RSI regime EA: visual + live bounce trades (v1.58).
 ## Divergence / BOS / HD (v1.46)
 - Regular Div: nearest RSI tops/bottoms; 1st >60/<45; 2nd dead-zone bahar; path clean; nearest draw
 - HD: nearest-in-time RSI extrema; 35–65; min ΔRSI; no BOS
-- Phase_RSI: levels 20/35/40/**44 yellow**/50/**54 yellow**/60/65/80
+- Phase_RSI: levels 20/35/40/**48 yellow**/50/**53 yellow**/60/65/80
 - Live flags: `newRegular*` / `newHidden*` / **`newBosBreakBear|Bull`** (pending primary BOS watch)
 - Trade BOS watch armed even if `InpShowBos` false (draw optional)
 
