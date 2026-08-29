@@ -17,7 +17,7 @@
 ## Paths
 - EA: `MQL5/Experts/Phase/Phase.mq5`
 - Indicator: `MQL5/Indicators/Phase_RSI.mq5`
-- MA: `MQL5/Indicators/Phase_MA.mq5` (SMA 10 white / 60 red)
+- MA: `MQL5/Indicators/Phase_MA.mq5` (SMA 10 white / 100 red)
 - FVG SL: `Include/Phase_FVG.mqh` (Future2EA port, no draw)
 
 ## Regime walk

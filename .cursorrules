@@ -12,24 +12,27 @@ RSI regime EA: visual + live bounce trades (v1.58).
   - **35** cross + (35-40 bounce OR neeche chhota u-turn) → SELL
   - Spike bina bounce = no flip; <60 / >40 → cancel arm
   - **0-1-2 loop** (`w.loopStep` / `loopPath` / `loopDead`):
-    - **0** = **sirf regular Div** (pivot stamp; 35-40 / 60-65 andar 0 nahi). HD kabhi 0 nahi
+    - **0** = **sirf regular Div** (pivot stamp hamesha; zone andar bhi 0 mark). HD kabhi 0 nahi
     - **1 ke baad naya regular Div = naya 0**, 2 nahi
     - **Div <35:** **1** = 59–65 reject/bounce **ya** 65 sharp-down ≤3; **2** = 35–41 bounce **ya** 35 sharp-up → BUY latch
     - **Div >65:** **1** = 35–41 bounce **ya** 35 sharp-up; **2** = 59–65 reject **ya** 65 sharp-down → SELL latch
     - 1 aur 2 **opposite** zones only — ek band (35-40 ya 60-65) mein dono nahi
     - **Virtual S&R:** no S&R <35 → **35–40 = S&R** (35 through = no 1/2). No S&R >65 → **60–65 = S&R**. Real PriceSR/INV pehle; S&R>65 pe mere Above65 DIE nahi — touch+reject=1, through=dead
-    - After 2: opposite 35/65 ignore until next **regular Div (=0)**
+    - After 2: opposite 35/65 ignore until next **regular Div (=0)** — **except** 50-zone se pehle **against-2** (sirf **2nd/last 2** ke baad). Pehla 2: **50 flip OK**. `<35` seedha up (no up-then-down candle) ya `>65` seedha down (no down-then-up) → **2 replace once** (purana 2 stamp hatao), **50 flip OFF**. 2nd 2 last.
     - **2 ke baad 50-zone 48–53 (yellow):** wait bounce/reject andar → flip; **>53 / <48 through** bina bounce = no flip. Classic 35/65 latch block until next Div
     - Same bar pe 0→1 ya 1→2 nahi; HUD nahi (sirf chart+RSI stamps)
     - **0 DIV extreme break (step 0/1):** path **-1** → RSI `> loopEvt0Rsi` = DIE; path **+1** → RSI `< loopEvt0Rsi` = DIE. Step 2 latch pe nahi; Mark0 bar pe nahi
  - Sharp = reverse ≤3 bars; park/stay on S&R = no count
- - **1 + Below35:** DIE (fromLow 60-65 ke baad dump / fromHigh 35-40 break) — Div confirm late se pehle galat **2** nahi. Mark0 agar 2 pivot ke baad tha to 2 stamp delete
+    - **1 + Below35 / 35-40 stay≥5 / re-cross:** DIE (BUY path 1@60-65 dump <35; SELL path 1@35-40 ke baad 35 stay ya 35-40 wapas). 2 sharp-up from <35 nahi. 0-1-2 teeno stamp lazmi
  - **1 invalidate (extreme):** 1 stamp hataye, **0 stamp nahi**. Far-dead: 1 bhi hataye
 - Price Div / BOS lines do **not** flip regime (regular Div only restarts loop)
 
 ## Trade (v1.47)
-- **Daily stop:** each server day auto-picks equity (`dayStartEq`). ±% of that → CloseAll + no entries until next day (`InpDailyProfitPct` / `InpDailyLossPct` 10/10)
-- **Book CloseAll:** float ≥ `InpBookProfitPct` (5) of today’s auto bal; after overall +`InpBookTightenAtPct` (15) vs run-start equity → `InpBookProfitPct2` (2), latched
+- **Daily stop:** % of frozen **`initEq`** (not day balance). Loss default **4.8%** → CloseAll + day stop. Profit **0 = unlimited**. `InpInitDeposit` 0 = auto-freeze first balance
+- **Max open:** `InpMaxOpen` default **3** — `PhTrade_Open` blocks jab pehle se ≥3 (2 open → 3rd slot OK)
+- **Book CloseAll:** float ≥ `InpBookProfitPct` (5) of frozen **init deposit** (no 2% tighten)
+- **Trail CloseAll:** open basket float ≤ −`InpTrailLossPct` (5) of init → CloseAll (no sticky equity peak)
+- **Master Avg gate (`InpMaGate`):** BUY only if SMA10 (white) > SMA100 (red); SELL only if white < red — entry block only, no CloseAll on cross
 - BUY regime: bounce 35–40 / 50; **also** 60–65 pullback then bounce up (≥60) → buy
 - SELL regime: bounce 60–65 / 50; **also** 35–40 bounce-down → sell
 - Extra RSI S&R: last 100 bars RSI swing H/L — support **<35** / resist **>65** only; scan even if RSI window missing (draw optional); arm on touch → fire on bounce/reject (`Phase_PriceSR.mqh`)
@@ -68,7 +71,7 @@ RSI regime EA: visual + live bounce trades (v1.58).
 
 ## Companion
 `Indicators/Phase_RSI.mq5` — RSI(14), levels 20/35/40/50/60/65/80
-`Indicators/Phase_MA.mq5` — SMA close 10 white / 60 red (chart window)
+`Indicators/Phase_MA.mq5` — SMA close 10 white / 100 red (chart window)
 
 ## Docs
 Phase_PRD.md + memory-bank/

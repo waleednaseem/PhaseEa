@@ -21,12 +21,14 @@ struct SPhTradeCfg
    int    fvgLookback;
    int    fvgMinGapPts;
    int    fvgMaxPts;
-   double bookBaseBal;        // unused (auto day equity)
-   double bookProfitPct;      // CloseAll when float ≥ this % of day-start equity
-   double bookProfitPctTight; // after +bookTightenAtPct vs run start
-   double bookTightenAtPct;   // overall +this % → switch book % to tight
-   double dailyProfitPct;     // +this % of day-start equity → stop until next day
-   double dailyLossPct;       // -this % of day-start equity → stop until next day
+   double bookBaseBal;        // unused
+   double bookProfitPct;      // CloseAll when float ≥ this % of initEq
+   double dailyProfitPct;     // +% of initEq → stop (0=off / unlimited)
+   double dailyLossPct;       // -% of initEq → CloseAll + day stop
+   double initDeposit;        // 0=auto-freeze first equity
+   double trailLossPct;       // open basket float ≤ −% of initEq → CloseAll
+   int    maxOpen;            // max concurrent positions (magic)
+   bool   maGate;             // Master Avg: BUY white>red / SELL white<red
   };
 
 struct SPhTradeState
@@ -50,9 +52,9 @@ struct SPhTradeState
    datetime fvgLastDetect;
    SPhFvg   fvgZone;
    datetime dayStamp;    // server day 00:00
-   double   dayStartEq;  // equity auto-picked at day start
-   double   runStartEq;  // first auto equity (15% tighten vs this)
-   bool     bookTight;   // latched after +bookTightenAtPct
+   double   dayStartEq;  // equity at day start (log only)
+   double   runStartEq;  // first day equity (log only)
+   double   initEq;      // frozen initial deposit (all risk % base)
    bool     dayStopped;  // daily target hit — no trades until next day
   };
 
@@ -107,12 +109,105 @@ void PhTrade_CfgDefault(SPhTradeCfg &c)
    c.fvgLookback  = 500;
    c.fvgMinGapPts = 10;
    c.fvgMaxPts    = 1500;
-   c.bookBaseBal        = 0.0;
-   c.bookProfitPct      = 5.0;
-   c.bookProfitPctTight = 2.0;
-   c.bookTightenAtPct   = 15.0;
-   c.dailyProfitPct     = 10.0;
-   c.dailyLossPct       = 10.0;
+   c.bookBaseBal    = 0.0;
+   c.bookProfitPct  = 5.0;
+   c.dailyProfitPct = 0.0;   // unlimited by default
+   c.dailyLossPct   = 4.8;
+   c.initDeposit    = 0.0;
+   c.trailLossPct   = 5.0;
+   c.maxOpen        = 3;
+   c.maGate         = true;
+  }
+
+int g_phMaFastH = INVALID_HANDLE; // SMA 10 white
+int g_phMaSlowH = INVALID_HANDLE; // SMA 100 red
+
+// #region agent log
+void PhDbg_Log(const string hypothesisId,const string location,
+               const string message,const string dataJson)
+  {
+   int h = FileOpen("debug-c5dd7a.log",FILE_READ|FILE_WRITE|FILE_TXT|FILE_ANSI|
+                    FILE_SHARE_READ|FILE_SHARE_WRITE);
+   if(h == INVALID_HANDLE)
+      h = FileOpen("debug-c5dd7a.log",FILE_WRITE|FILE_TXT|FILE_ANSI|
+                   FILE_SHARE_READ|FILE_SHARE_WRITE);
+   if(h == INVALID_HANDLE)
+      return;
+   FileSeek(h,0,SEEK_END);
+   string line = StringFormat(
+      "{\"sessionId\":\"c5dd7a\",\"hypothesisId\":\"%s\",\"location\":\"%s\","
+      "\"message\":\"%s\",\"data\":%s,\"timestamp\":%I64d}\n",
+      hypothesisId,location,message,dataJson,(long)TimeCurrent()*1000);
+   FileWriteString(h,line);
+   FileClose(h);
+  }
+
+bool PhTrade_MaSnapshot(double &fastOut,double &slowOut)
+  {
+   fastOut = 0.0;
+   slowOut = 0.0;
+   if(g_phMaFastH == INVALID_HANDLE || g_phMaSlowH == INVALID_HANDLE)
+      return(false);
+   double fast[1],slow[1];
+   if(CopyBuffer(g_phMaFastH,0,1,1,fast) != 1)
+      return(false);
+   if(CopyBuffer(g_phMaSlowH,0,1,1,slow) != 1)
+      return(false);
+   fastOut = fast[0];
+   slowOut = slow[0];
+   return(true);
+  }
+// #endregion
+
+bool PhTrade_InitMa()
+  {
+   if(g_phMaFastH != INVALID_HANDLE)
+      IndicatorRelease(g_phMaFastH);
+   if(g_phMaSlowH != INVALID_HANDLE)
+      IndicatorRelease(g_phMaSlowH);
+   g_phMaFastH = iMA(_Symbol,_Period,10,0,MODE_SMA,PRICE_CLOSE);
+   g_phMaSlowH = iMA(_Symbol,_Period,100,0,MODE_SMA,PRICE_CLOSE);
+   if(g_phMaFastH == INVALID_HANDLE || g_phMaSlowH == INVALID_HANDLE)
+     {
+      Print("Phase Trade: iMA Master Avg failed");
+      return(false);
+     }
+   return(true);
+  }
+
+void PhTrade_ReleaseMa()
+  {
+   if(g_phMaFastH != INVALID_HANDLE)
+     {
+      IndicatorRelease(g_phMaFastH);
+      g_phMaFastH = INVALID_HANDLE;
+     }
+   if(g_phMaSlowH != INVALID_HANDLE)
+     {
+      IndicatorRelease(g_phMaSlowH);
+      g_phMaSlowH = INVALID_HANDLE;
+     }
+  }
+
+// white(10) vs red(100) — bar 1; fail-closed if no data
+bool PhTrade_MaAllows(const SPhTradeCfg &cfg,const ENUM_ORDER_TYPE type)
+  {
+   if(!cfg.maGate)
+      return(true);
+   if(g_phMaFastH == INVALID_HANDLE || g_phMaSlowH == INVALID_HANDLE)
+      return(false);
+
+   double fast[1], slow[1];
+   if(CopyBuffer(g_phMaFastH,0,1,1,fast) != 1)
+      return(false);
+   if(CopyBuffer(g_phMaSlowH,0,1,1,slow) != 1)
+      return(false);
+
+   if(type == ORDER_TYPE_BUY)
+      return(fast[0] > slow[0]);   // white above red
+   if(type == ORDER_TYPE_SELL)
+      return(fast[0] < slow[0]);   // white below red
+   return(false);
   }
 
 void PhTrade_Init(SPhTradeState &st,const SPhTradeCfg &cfg)
@@ -134,11 +229,11 @@ void PhTrade_Init(SPhTradeState &st,const SPhTradeCfg &cfg)
    st.fvgLastFireBar   = 0;
    st.fvgLastDetect    = 0;
    st.fvgZone.valid    = false;
-   st.dayStamp    = 0;
-   st.dayStartEq  = 0.0;
-   st.runStartEq  = 0.0;
-   st.bookTight   = false;
-   st.dayStopped  = false;
+   st.dayStamp   = 0;
+   st.dayStartEq = 0.0;
+   st.runStartEq = 0.0;
+   st.initEq     = 0.0;
+   st.dayStopped = false;
   }
 
 void PhTrade_ResetArms(SPhTradeState &st)
@@ -577,12 +672,65 @@ double PhTrade_CalcSl(const SPhTradeCfg &cfg,const bool isSell,const double entr
 bool PhTrade_Open(SPhTradeState &st,const SPhTradeCfg &cfg,const ENUM_ORDER_TYPE type,
                   const string comment="PH_BNC")
   {
+   // #region agent log
+   double dbgFast = 0.0, dbgSlow = 0.0;
+   PhTrade_MaSnapshot(dbgFast,dbgSlow);
+   const datetime dbgBar = iTime(_Symbol,_Period,1);
+   const int dbgOpen = PhTrade_CountOurs(cfg.magic);
+   string dbgBlock = "";
+   // #endregion
    if(!cfg.enable)
+     {
+      dbgBlock = "disabled";
+      // #region agent log
+      PhDbg_Log("H1","Phase_Trade.mqh:PhTrade_Open","blocked",
+         StringFormat("{\"comment\":\"%s\",\"type\":%d,\"block\":\"%s\",\"fast\":%.5f,\"slow\":%.5f,\"whiteAboveRed\":%s,\"bar\":\"%s\",\"open\":%d}",
+            comment,(int)type,dbgBlock,dbgFast,dbgSlow,(dbgFast>dbgSlow?"true":"false"),
+            TimeToString(dbgBar),dbgOpen));
+      // #endregion
       return(false);
+     }
    if(st.dayStopped)
+     {
+      dbgBlock = "dayStopped";
+      // #region agent log
+      PhDbg_Log("H1","Phase_Trade.mqh:PhTrade_Open","blocked",
+         StringFormat("{\"comment\":\"%s\",\"type\":%d,\"block\":\"%s\",\"fast\":%.5f,\"slow\":%.5f,\"bar\":\"%s\",\"open\":%d}",
+            comment,(int)type,dbgBlock,dbgFast,dbgSlow,TimeToString(dbgBar),dbgOpen));
+      // #endregion
       return(false);
+     }
    if(st.seqLocked)
+     {
+      dbgBlock = "seqLocked";
+      // #region agent log
+      PhDbg_Log("H1","Phase_Trade.mqh:PhTrade_Open","blocked",
+         StringFormat("{\"comment\":\"%s\",\"type\":%d,\"block\":\"%s\",\"fast\":%.5f,\"slow\":%.5f,\"bar\":\"%s\"}",
+            comment,(int)type,dbgBlock,dbgFast,dbgSlow,TimeToString(dbgBar)));
+      // #endregion
       return(false);
+     }
+   if(cfg.maxOpen > 0 && PhTrade_CountOurs(cfg.magic) >= cfg.maxOpen)
+     {
+      dbgBlock = "maxOpen";
+      // #region agent log
+      PhDbg_Log("H1","Phase_Trade.mqh:PhTrade_Open","blocked",
+         StringFormat("{\"comment\":\"%s\",\"type\":%d,\"block\":\"%s\",\"fast\":%.5f,\"slow\":%.5f,\"bar\":\"%s\",\"open\":%d,\"maxOpen\":%d}",
+            comment,(int)type,dbgBlock,dbgFast,dbgSlow,TimeToString(dbgBar),dbgOpen,cfg.maxOpen));
+      // #endregion
+      return(false);
+     }
+   if(!PhTrade_MaAllows(cfg,type))
+     {
+      dbgBlock = "maGate";
+      // #region agent log
+      PhDbg_Log("H2","Phase_Trade.mqh:PhTrade_Open","maGate-block",
+         StringFormat("{\"comment\":\"%s\",\"type\":%d,\"block\":\"%s\",\"fast\":%.5f,\"slow\":%.5f,\"whiteAboveRed\":%s,\"bar\":\"%s\",\"maGate\":%s}",
+            comment,(int)type,dbgBlock,dbgFast,dbgSlow,(dbgFast>dbgSlow?"true":"false"),
+            TimeToString(dbgBar),(cfg.maGate?"true":"false")));
+      // #endregion
+      return(false);
+     }
 
    double lot = PhTrade_NormalizeLot(cfg.lot);
    double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
@@ -618,7 +766,14 @@ bool PhTrade_Open(SPhTradeState &st,const SPhTradeCfg &cfg,const ENUM_ORDER_TYPE
    else
       return(false);
 
-   return(PhTrade_Send(req,res));
+   // #region agent log
+   const bool dbgOk = PhTrade_Send(req,res);
+   PhDbg_Log("H3","Phase_Trade.mqh:PhTrade_Open",dbgOk?"opened":"sendFail",
+      StringFormat("{\"comment\":\"%s\",\"type\":%d,\"fast\":%.5f,\"slow\":%.5f,\"whiteAboveRed\":%s,\"bar\":\"%s\",\"retcode\":%d}",
+         comment,(int)type,dbgFast,dbgSlow,(dbgFast>dbgSlow?"true":"false"),
+         TimeToString(dbgBar),res.retcode));
+   return(dbgOk);
+   // #endregion
   }
 
 bool PhTrade_CloseTicket(const ulong ticket,const SPhTradeCfg &cfg)
@@ -739,11 +894,25 @@ datetime PhTrade_DayStamp(const datetime t)
    return(StructToTime(dt));
   }
 
+void PhTrade_EnsureInitEq(SPhTradeState &st,const SPhTradeCfg &cfg)
+  {
+   if(st.initEq > 0.0)
+      return;
+   if(cfg.initDeposit > 0.0)
+      st.initEq = cfg.initDeposit;
+   else
+      st.initEq = AccountInfoDouble(ACCOUNT_BALANCE);
+   if(st.initEq <= 0.0)
+      st.initEq = AccountInfoDouble(ACCOUNT_EQUITY);
+   Print("Phase Trade: initEq freeze=",DoubleToString(st.initEq,2));
+  }
+
 void PhTrade_RollDay(SPhTradeState &st,const SPhTradeCfg &cfg)
   {
    datetime day = PhTrade_DayStamp(TimeCurrent());
    if(day <= 0)
       return;
+   PhTrade_EnsureInitEq(st,cfg);
    if(st.dayStamp == day)
       return;
 
@@ -752,58 +921,37 @@ void PhTrade_RollDay(SPhTradeState &st,const SPhTradeCfg &cfg)
    st.dayStopped = false;
    if(st.runStartEq <= 0.0)
       st.runStartEq = st.dayStartEq;
-   Print("Phase Trade: new day auto bal=",DoubleToString(st.dayStartEq,2),
-         " runStart=",DoubleToString(st.runStartEq,2),
+   Print("Phase Trade: new day bal=",DoubleToString(st.dayStartEq,2),
+         " initEq=",DoubleToString(st.initEq,2),
          " +",DoubleToString(cfg.dailyProfitPct,1),"% / -",
-         DoubleToString(cfg.dailyLossPct,1),"%");
+         DoubleToString(cfg.dailyLossPct,1),"% of init");
   }
 
-double PhTrade_ActiveBookPct(SPhTradeState &st,const SPhTradeCfg &cfg)
-  {
-   double pct = (cfg.bookProfitPct > 0.0 ? cfg.bookProfitPct : 5.0);
-   if(st.bookTight)
-      return(cfg.bookProfitPctTight > 0.0 ? cfg.bookProfitPctTight : 2.0);
-   if(cfg.bookTightenAtPct <= 0.0 || st.runStartEq <= 0.0)
-      return(pct);
-
-   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
-   if(eq + 1e-8 < st.runStartEq * (1.0 + cfg.bookTightenAtPct / 100.0))
-      return(pct);
-
-   st.bookTight = true;
-   pct = (cfg.bookProfitPctTight > 0.0 ? cfg.bookProfitPctTight : 2.0);
-   Print("Phase Trade: +",DoubleToString(cfg.bookTightenAtPct,1),
-         "% vs runStart ",DoubleToString(st.runStartEq,2),
-         " → book % ",DoubleToString(cfg.bookProfitPct,1)," → ",
-         DoubleToString(pct,1));
-   return(pct);
-  }
-
-// Floating profit ≥ book % of today's auto equity → CloseAll
+// Floating profit ≥ book % of frozen init deposit → CloseAll
 bool PhTrade_PollProfitHalfClose(SPhTradeState &st,const SPhTradeCfg &cfg)
   {
-   if(!cfg.enable)
+   if(!cfg.enable || cfg.bookProfitPct <= 0.0)
       return(false);
    PhTrade_RollDay(st,cfg);
+   PhTrade_EnsureInitEq(st,cfg);
    if(PhTrade_CountOurs(cfg.magic) <= 0)
       return(false);
-   if(st.dayStartEq <= 0.0)
+   if(st.initEq <= 0.0)
       return(false);
 
    double fl = PhTrade_BasketFloat(cfg.magic);
-   const double pct = PhTrade_ActiveBookPct(st,cfg);
-   const double need = st.dayStartEq * (pct / 100.0);
+   const double need = st.initEq * (cfg.bookProfitPct / 100.0);
    if(fl < need)
       return(false);
 
    int n = PhTrade_CloseAll(st,cfg);
-   Print("Phase Trade: profit≥",DoubleToString(pct,1),"% of day bal ",
-         DoubleToString(st.dayStartEq,2)," → CloseAll n=",n,
+   Print("Phase Trade: book profit≥",DoubleToString(cfg.bookProfitPct,1),
+         "% init ",DoubleToString(st.initEq,2)," → CloseAll n=",n,
          " float=",DoubleToString(fl,2)," need≥",DoubleToString(need,2));
    return(n > 0);
   }
 
-// Today's P/L vs ±% of auto day-start equity → CloseAll + stop until next day
+// Today's P/L vs ±% of frozen initEq → CloseAll + stop until next day
 bool PhTrade_PollDailyTarget(SPhTradeState &st,const SPhTradeCfg &cfg)
   {
    if(!cfg.enable)
@@ -812,14 +960,15 @@ bool PhTrade_PollDailyTarget(SPhTradeState &st,const SPhTradeCfg &cfg)
       return(false);
 
    PhTrade_RollDay(st,cfg);
+   PhTrade_EnsureInitEq(st,cfg);
    if(st.dayStopped)
       return(false);
-   if(st.dayStartEq <= 0.0)
+   if(st.initEq <= 0.0 || st.dayStartEq <= 0.0)
       return(false);
 
    const double pnl = AccountInfoDouble(ACCOUNT_EQUITY) - st.dayStartEq;
-   const double profitNeed = st.dayStartEq * (cfg.dailyProfitPct / 100.0);
-   const double lossNeed   = st.dayStartEq * (cfg.dailyLossPct / 100.0);
+   const double profitNeed = st.initEq * (cfg.dailyProfitPct / 100.0);
+   const double lossNeed   = st.initEq * (cfg.dailyLossPct / 100.0);
    bool hitProfit = (cfg.dailyProfitPct > 0.0 && pnl + 1e-8 >= profitNeed);
    bool hitLoss   = (cfg.dailyLossPct > 0.0 && pnl - 1e-8 <= -lossNeed);
    if(!hitProfit && !hitLoss)
@@ -829,9 +978,34 @@ bool PhTrade_PollDailyTarget(SPhTradeState &st,const SPhTradeCfg &cfg)
    st.dayStopped = true;
    PhTrade_ResetArms(st);
    Print("Phase Trade: daily ",(hitLoss ? "LOSS" : "PROFIT"),
-         " stop pnl=",DoubleToString(pnl,2)," dayBal=",DoubleToString(st.dayStartEq,2),
+         " stop pnl=",DoubleToString(pnl,2)," initEq=",DoubleToString(st.initEq,2),
+         " need=",DoubleToString((hitLoss ? lossNeed : profitNeed),2),
          " → CloseAll n=",n," STOP until next day");
    return(true);
+  }
+
+// Open basket float ≤ −trailLossPct of initEq → CloseAll (no day stop)
+bool PhTrade_PollTrailLoss(SPhTradeState &st,const SPhTradeCfg &cfg)
+  {
+   if(!cfg.enable || cfg.trailLossPct <= 0.0)
+      return(false);
+   if(PhTrade_CountOurs(cfg.magic) <= 0)
+      return(false);
+
+   PhTrade_EnsureInitEq(st,cfg);
+   if(st.initEq <= 0.0)
+      return(false);
+
+   const double fl   = PhTrade_BasketFloat(cfg.magic);
+   const double need = st.initEq * (cfg.trailLossPct / 100.0);
+   if(fl > -need + 1e-8)
+      return(false);
+
+   int n = PhTrade_CloseAll(st,cfg);
+   Print("Phase Trade: trail LOSS float=",DoubleToString(fl,2),
+         " ≤ -",DoubleToString(need,2)," (",DoubleToString(cfg.trailLossPct,1),
+         "% init ",DoubleToString(st.initEq,2),") → CloseAll n=",n);
+   return(n > 0);
   }
 
 bool PhTrade_PollSlLock(SPhTradeState &st,const SPhTradeCfg &cfg)

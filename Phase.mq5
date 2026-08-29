@@ -2,7 +2,7 @@
 //|                                                       Phase.mq5  |
 //+------------------------------------------------------------------+
 #property copyright "Phase"
-#property version   "1.61"
+#property version   "1.70"
 
 #include "Include/Phase_Types.mqh"
 #include "Include/Phase_Regime.mqh"
@@ -58,7 +58,8 @@ input bool               InpShowSignals    = true;
 input bool               InpShowRsiSR      = true;  // regime INV dotted S&R on RSI
 input bool               InpShowDash       = true;
 input bool               InpAttachRsi      = true;
-input bool               InpAttachMa       = true;  // SMA 10 white / 60 red on chart
+input bool               InpAttachMa       = true;  // SMA 10 white / 100 red on chart
+input bool               InpMaGate         = true;  // entry: BUY white>red / SELL white<red
 input color              InpBullColor      = C'12,55,32';
 input color              InpBearColor      = C'70,18,22';
 input color              InpNeutralColor   = clrBlack;
@@ -77,12 +78,13 @@ input long               InpTradeMagic      = 140001;
 input int                InpTradeDeviation  = 30;
 input bool               InpShowPriceSR     = true;  // last-100 price S&R lines
 input int                InpPriceSRBars     = 100;
-input double             InpBookBaseBal       = 0;      // unused — day balance auto
-input double             InpBookProfitPct     = 5.0;    // CloseAll float ≥ this % of today's auto bal
-input double             InpBookProfitPct2    = 2.0;    // book % after overall +InpBookTightenAtPct
-input double             InpBookTightenAtPct  = 15.0;   // overall +this % vs run start → use Pct2
-input double             InpDailyProfitPct    = 0;   // today +this % of auto bal → stop until next day (0=off)
-input double             InpDailyLossPct      = 0;   // today -this % of auto bal → stop until next day (0=off)
+input double             InpBookBaseBal       = 0;      // unused
+input double             InpBookProfitPct     = 2.0;    // CloseAll float ≥ this % of init deposit
+input double             InpInitDeposit       = 0;      // 0=auto-freeze first balance (risk % base)
+input double             InpDailyProfitPct    = 0;      // +% of init → stop (0=unlimited)
+input double             InpDailyLossPct      = 4.8;    // today −% of init → CloseAll + stop day
+input double             InpTrailLossPct      = 5.0;    // open basket float ≤ −% of init → CloseAll
+input int                InpMaxOpen           = 2;      // max concurrent Phase trades
 
 input group "=== FVG ==="
 input bool               InpShowFvg             = true;
@@ -171,12 +173,14 @@ void LoadConfig()
    g_tradeCfg.deviation = InpTradeDeviation;
    g_tradeCfg.fvgLookback  = InpFvgLookbackBars;
    g_tradeCfg.fvgMinGapPts = InpFvgMinGapPoints;
-   g_tradeCfg.bookProfitPct      = InpBookProfitPct;
-   g_tradeCfg.bookProfitPctTight = InpBookProfitPct2;
-   g_tradeCfg.bookTightenAtPct   = InpBookTightenAtPct;
-   g_tradeCfg.bookBaseBal        = InpBookBaseBal;
+   g_tradeCfg.bookProfitPct = InpBookProfitPct;
+   g_tradeCfg.bookBaseBal   = InpBookBaseBal;
    g_tradeCfg.dailyProfitPct     = InpDailyProfitPct;
    g_tradeCfg.dailyLossPct       = InpDailyLossPct;
+   g_tradeCfg.initDeposit        = InpInitDeposit;
+   g_tradeCfg.trailLossPct       = InpTrailLossPct;
+   g_tradeCfg.maGate             = InpMaGate;
+   g_tradeCfg.maxOpen            = MathMax(1,InpMaxOpen);
   }
 
 void AttachPhaseRsi()
@@ -211,15 +215,18 @@ void AttachPhaseRsi()
 
 void AttachPhaseMa()
   {
+   // Purane MA hatao (Phase_MA + manual duplicates)
    for(int i = ChartIndicatorsTotal(0,0) - 1; i >= 0; i--)
      {
       string name = ChartIndicatorName(0,0,i);
-      if(StringFind(name,"Phase_MA") == 0)
+      if(StringFind(name,"Phase_MA") == 0 ||
+         StringFind(name,"Moving Average") >= 0 ||
+         StringFind(name,"MA(") >= 0)
          ChartIndicatorDelete(0,0,name);
      }
    g_maWindow = -1;
 
-   int h = iCustom(_Symbol,_Period,"Phase_MA",10,60);
+   int h = iCustom(_Symbol,_Period,"Phase_MA",10,100);
    if(h == INVALID_HANDLE)
      {
       Print("Phase: compile Indicators/Phase_MA.mq5 first");
@@ -232,6 +239,7 @@ void AttachPhaseMa()
       return;
      }
    g_maWindow = 0;
+   Print("Phase: MA attach white10/red100 ok");
   }
 
 void PaintDash(const bool forceCalc)
@@ -248,6 +256,14 @@ void ApplyTradeExitsAndEntries()
    const ENUM_PH_REGIME cur = (ArraySize(g_regimes) > 1 ? g_regimes[1] : PH_NEUTRAL);
    if(cur != g_lastRegime)
      {
+      // #region agent log
+      double dbgFast = 0.0, dbgSlow = 0.0;
+      PhTrade_MaSnapshot(dbgFast,dbgSlow);
+      PhDbg_Log("H4","Phase.mq5:ApplyTradeExitsAndEntries","regimeFlip",
+         StringFormat("{\"from\":\"%s\",\"to\":\"%s\",\"bar\":\"%s\",\"fast\":%.5f,\"slow\":%.5f,\"whiteAboveRed\":%s}",
+            EnumToString(g_lastRegime),EnumToString(cur),TimeToString(iTime(_Symbol,_Period,1)),
+            dbgFast,dbgSlow,(dbgFast>dbgSlow?"true":"false")));
+      // #endregion
       // Opposite-div BOS + FVG/bounce U-turn → regime flicker pe bhi CloseAll mat
       const bool wasBuy = (g_lastRegime == PH_BULLISH);
       const bool wasSell = (g_lastRegime == PH_BEARISH);
@@ -274,7 +290,19 @@ void ApplyTradeExitsAndEntries()
       PhTrade_ClearAgainstLock(g_trade);
       if(PhTrade_IsLocked(g_trade))
          PhTrade_UnlockSeq(g_trade);
-      // Red/green SELL/BUY arrow = regime start — same bar pe entry
+      // Live BUY/SELL arrow — trade flip ke sath (stale history paint nahi)
+      if(InpShowSignals)
+        {
+         if(cur == PH_BEARISH)
+            PhStampRegimeSignal(PH_BEARISH,InpSellSignalClr,InpBuySignalClr);
+         else if(cur == PH_BULLISH)
+            PhStampRegimeSignal(PH_BULLISH,InpBuySignalClr,InpSellSignalClr);
+         // #region agent log
+         PhDbg_Log("H5","Phase.mq5:ApplyTradeExitsAndEntries","liveStamp",
+            StringFormat("{\"to\":\"%s\",\"bar\":\"%s\"}",EnumToString(cur),
+               TimeToString(iTime(_Symbol,_Period,1))));
+         // #endregion
+        }
       if(cur == PH_BEARISH)
         {
          if(PhTrade_Open(g_trade,g_tradeCfg,ORDER_TYPE_SELL,"PH_REG"))
@@ -348,8 +376,7 @@ void PaintAll(const int hist)
       PhPaintHistory(g_regimes,hist,InpBullColor,InpBearColor,InpNeutralColor);
    if(InpShowBoxes)
       PhPaintBoxes(g_regimes,hist,InpBullBoxColor,InpBearBoxColor);
-   if(InpShowSignals)
-      PhPaintSignals(g_regimes,hist,InpBuySignalClr,InpSellSignalClr);
+   // SG arrows: live flip only (ApplyTradeExitsAndEntries) — not full g_regimes scan
    if(InpShowRsiSR)
       PhPaintRsiSR(g_srList,g_rsiWindow,InpSupportClr,InpResistClr);
 
@@ -409,6 +436,7 @@ void IgniteHistory()
    if(!CopyRsiTimes(hist))
       return;
 
+   PhDeleteByPrefix(g_phPrefix + "SG_");   // stale BUY/SELL arrows clear
    ArrayResize(g_regimes,hist + 1);
    ArrayInitialize(g_regimes,(int)PH_NEUTRAL);
    PhPriceSR_Scan(g_priceSR,g_rsi,g_times,g_rsiWindow,InpPriceSRBars,2,InpShowPriceSR);
@@ -481,6 +509,8 @@ int OnInit()
       Print("Phase: iRSI failed");
       return(INIT_FAILED);
      }
+   if(InpMaGate && !PhTrade_InitMa())
+      return(INIT_FAILED);
    if(InpShowDash)
       PhDash_CreateHandles(g_dash,InpRsiPeriod,InpAppliedPrice);
    if(InpResetLossStats)
@@ -518,6 +548,7 @@ void OnDeinit(const int reason)
       IndicatorRelease(g_rsiHandle);
       g_rsiHandle = INVALID_HANDLE;
      }
+   PhTrade_ReleaseMa();
    if(InpAttachRsi && g_rsiWindow >= 0)
      {
       for(int i = ChartIndicatorsTotal(0,g_rsiWindow) - 1; i >= 0; i--)
@@ -532,7 +563,9 @@ void OnDeinit(const int reason)
       for(int i = ChartIndicatorsTotal(0,g_maWindow) - 1; i >= 0; i--)
         {
          string name = ChartIndicatorName(0,g_maWindow,i);
-         if(StringFind(name,"Phase_MA") == 0)
+         if(StringFind(name,"Phase_MA") == 0 ||
+            StringFind(name,"Moving Average") >= 0 ||
+            StringFind(name,"MA(") >= 0)
             ChartIndicatorDelete(0,g_maWindow,name);
         }
      }
@@ -548,6 +581,7 @@ void OnTick()
       PhTrade_PollStackLossClose(g_trade,g_tradeCfg);
       PhTrade_PollProfitHalfClose(g_trade,g_tradeCfg);
       PhTrade_PollDailyTarget(g_trade,g_tradeCfg);
+      PhTrade_PollTrailLoss(g_trade,g_tradeCfg);
       PhTrade_PollSlLock(g_trade,g_tradeCfg);
      }
 
@@ -556,7 +590,10 @@ void OnTick()
    g_lastBar = t;
    AdvanceBar();
    if(InpEnableTrade)
+     {
       PhTrade_PollDailyTarget(g_trade,g_tradeCfg);
+      PhTrade_PollTrailLoss(g_trade,g_tradeCfg);
+     }
   }
 
 void OnTimer()
@@ -568,6 +605,7 @@ void OnTimer()
       PhTrade_PollStackLossClose(g_trade,g_tradeCfg);
       PhTrade_PollProfitHalfClose(g_trade,g_tradeCfg);
       PhTrade_PollDailyTarget(g_trade,g_tradeCfg);
+      PhTrade_PollTrailLoss(g_trade,g_tradeCfg);
       PhTrade_PollSlLock(g_trade,g_tradeCfg);
      }
    if(InpShowBackground) PhResizeBg();

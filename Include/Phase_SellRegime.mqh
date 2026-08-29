@@ -30,6 +30,7 @@ bool PhSell_Process(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cfg
      {
       if(PhStay_BounceBuyFrom50(w,cfg,v,vOlder))
         {
+         w.loop50Flipped = true;
          fromBounce = true;
          return(true);
         }

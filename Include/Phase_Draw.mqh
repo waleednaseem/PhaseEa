@@ -212,6 +212,29 @@ void PhDrawSignal(const string name,const datetime t,const double price,
    ObjectSetInteger(0,txt,OBJPROP_HIDDEN,true);
   }
 
+// Live regime flip only — stale ignite g_regimes[] se arrow mat banao
+void PhStampRegimeSignal(const ENUM_PH_REGIME cur,const color buyClr,const color sellClr)
+  {
+   if(cur != PH_BULLISH && cur != PH_BEARISH)
+      return;
+   const datetime t = iTime(_Symbol,_Period,1);
+   if(t <= 0)
+      return;
+   double hi = iHigh(_Symbol,_Period,1);
+   double lo = iLow(_Symbol,_Period,1);
+   if(hi <= 0.0) hi = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   if(lo <= 0.0) lo = hi;
+   double pad = (hi - lo) * 0.5;
+   if(pad <= 0.0)
+      pad = _Point * 50.0;
+
+   const string id = IntegerToString((int)t);
+   if(cur == PH_BULLISH)
+      PhDrawSignal(g_phPrefix + "SG_BUY_" + id,t,lo - pad,buyClr,233,ANCHOR_TOP,"BUY");
+   else
+      PhDrawSignal(g_phPrefix + "SG_SELL_" + id,t,hi + pad,sellClr,234,ANCHOR_BOTTOM,"SELL");
+  }
+
 void PhPaintSignals(const ENUM_PH_REGIME &regimes[],const int hist,
                     const color buyClr,const color sellClr)
   {

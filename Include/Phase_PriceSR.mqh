@@ -713,9 +713,10 @@ int PhStay_LoopDrive(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cf
    if(PhStay_LoopInvalidate1(w,cfg,v))
       return(0);
 
-   // step 1 ke baad 35 cross: sharp-up = 2; slow/stay = dead (path>0 only)
-   if(w.loopStep == 1 && w.loopPath < 0 && PhStay_Below35(cfg,v))
+   // step 1: <35 stay/dump = DIE (dono path) — sharp-up se 2 nahi
+   if(w.loopStep == 1 && PhStay_Below35(cfg,v))
      {
+      Print("Phase Loop: DIE 35-stay path=",w.loopPath," rsi=",DoubleToString(v,1));
       PhStay_LoopDie(w);
       return(0);
      }
@@ -723,7 +724,6 @@ int PhStay_LoopDrive(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cf
    if(just0)
       return(0);
 
-   // pehle S&R arm / 1-2 advance — FarKill baad (warna Above65 pe DIE se pehle arm nahi hota)
    if(w.loopStep == 0 && w.loopPath != 0)
      {
       if(w.loopPath > 0)
@@ -735,25 +735,10 @@ int PhStay_LoopDrive(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cf
          PhStay_LoopSet1(w,v,vOlder,false,barT);
      }
 
-   if(w.loopStep == 1 && w.loopStep1Time != barT)
+   if(w.loopStep == 1 && w.loopStep1Time != barT && w.loopEvt0Time > 0)
      {
       if(w.loopPath > 0)
         {
-         if(PhStay_Below35(cfg,v))
-           {
-            if(PhStay_LoopLoSharpUp(w,cfg,v,vOlder))
-              {
-               PhStay_LoopComplete2(w,barT);
-               return(1);
-              }
-            if(PhStay_LoopLoSharpTimedOut(w))
-              {
-               PhStay_LoopDie(w);
-               return(0);
-              }
-            return(0);
-           }
-         PhWalkClearLoopLoCross(w);
          if(PhStay_LoopLoBounce(w,psr,L,cfg,v,vOlder))
            {
             PhStay_LoopComplete2(w,barT);
@@ -765,9 +750,20 @@ int PhStay_LoopDrive(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cf
          PhStay_LoopComplete2(w,barT);
          return(-1);
         }
+      if(PhStay_LoopFail3540After1(w,cfg,v))
+         return(0);
      }
 
-   if(w.loopStep != 2)
+   if(w.loopStep == 2)
+     {
+      const int rep = PhStay_LoopReplace2(w,cfg,v,vOlder,barT);
+      if(rep != 0)
+         return(rep);
+      const int against = PhStay_LoopAgainst2(w,cfg,v,barT);
+      if(against != 0)
+         return(against);
+     }
+   else
       PhStay_LoopCheckFarKill(w,psr,L,cfg,v,vOlder);
 
    return(0);
