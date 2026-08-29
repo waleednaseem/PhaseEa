@@ -12,6 +12,7 @@
 #define PH_DASH_N       5
 #define PH_DASH_MR      10
 #define PH_DASH_W       118
+#define PH_DASH_LOSS_W  198
 #define PH_DASH_Y0      10
 #define PH_DASH_ROW     15
 #define PH_DASH_PAD     5
@@ -698,38 +699,38 @@ void PhDash_PaintLoss(SPhDash &d,const bool show,const long magic,const bool res
    int lossTrades = s_lossTrades;
    int profitTrades = s_profitTrades;
 
-   const int xL = PhDash_XL();
+   const int xL = PH_DASH_MR + PH_DASH_LOSS_W;
    const int rows = 13;
    const int h = rows * PH_DASH_ROW + PH_DASH_PAD * 2;
    string cur = AccountInfoString(ACCOUNT_CURRENCY);
 
-   PhDash_SetRect(pfx + "BG",xL,y,PH_DASH_W,h,backClr,borderClr);
+   PhDash_SetRect(pfx + "BG",xL,y,PH_DASH_LOSS_W,h,backClr,borderClr);
    int ry = y + PH_DASH_PAD;
-   PhDash_SetLabel(pfx + "H",xL - 6,ry,"LOSS [" + cur + "]",textClr,8);
+   PhDash_SetLabel(pfx + "H",xL - 6,ry,"Loss [" + cur + "]",textClr,8);
    ry += PH_DASH_ROW;
-   PhDash_SetLabel(pfx + "MF",xL - 6,ry,"MaxFloat " + PhDash_Money(maxFloat),lossClr,8);
+   PhDash_SetLabel(pfx + "MF",xL - 6,ry,"Max Float Loss  " + PhDash_Money(maxFloat),lossClr,8);
    ry += PH_DASH_ROW;
-   PhDash_SetLabel(pfx + "MP",xL - 6,ry,"MaxFltP  " + PhDash_Money(maxFloatP),profitClr,8);
+   PhDash_SetLabel(pfx + "MP",xL - 6,ry,"Max Float Profit " + PhDash_Money(maxFloatP),profitClr,8);
    ry += PH_DASH_ROW;
-   PhDash_SetLabel(pfx + "AP",xL - 6,ry,"AvgFltP  " + PhDash_Money(avgFloatP),profitClr,8);
+   PhDash_SetLabel(pfx + "AP",xL - 6,ry,"Avg Float Profit " + PhDash_Money(avgFloatP),profitClr,8);
    ry += PH_DASH_ROW;
-   PhDash_SetLabel(pfx + "MD",xL - 6,ry,"MaxDD    " + PhDash_Money(maxDd),lossClr,8);
+   PhDash_SetLabel(pfx + "MD",xL - 6,ry,"Max Drawdown     " + PhDash_Money(maxDd),lossClr,8);
    ry += PH_DASH_ROW;
-   PhDash_SetLabel(pfx + "ML",xL - 6,ry,"MaxLoss  " + PhDash_Money(maxLossTrade),lossClr,8);
+   PhDash_SetLabel(pfx + "ML",xL - 6,ry,"Max Trade Loss   " + PhDash_Money(maxLossTrade),lossClr,8);
    ry += PH_DASH_ROW;
-   PhDash_SetLabel(pfx + "LT",xL - 6,ry,"LossTr   " + IntegerToString(lossTrades),lossClr,8);
+   PhDash_SetLabel(pfx + "LT",xL - 6,ry,"Losing Trades    " + IntegerToString(lossTrades),lossClr,8);
    ry += PH_DASH_ROW;
-   PhDash_SetLabel(pfx + "PT",xL - 6,ry,"ProfitTr " + IntegerToString(profitTrades),profitClr,8);
+   PhDash_SetLabel(pfx + "PT",xL - 6,ry,"Profit Trades    " + IntegerToString(profitTrades),profitClr,8);
    ry += PH_DASH_ROW;
-   PhDash_SetLabel(pfx + "RX",xL - 6,ry,"RegMax   " + PhDash_Pips(s_regMax),textClr,8);
+   PhDash_SetLabel(pfx + "RX",xL - 6,ry,"Regime Max       " + PhDash_Pips(s_regMax),textClr,8);
    ry += PH_DASH_ROW;
-   PhDash_SetLabel(pfx + "RA",xL - 6,ry,"RegAvg   " + PhDash_Pips(s_regAvg),textClr,8);
+   PhDash_SetLabel(pfx + "RA",xL - 6,ry,"Regime Avg       " + PhDash_Pips(s_regAvg),textClr,8);
    ry += PH_DASH_ROW;
-   PhDash_SetLabel(pfx + "RN",xL - 6,ry,"RegMin   " + PhDash_Pips(s_regMin),textClr,8);
+   PhDash_SetLabel(pfx + "RN",xL - 6,ry,"Regime Min       " + PhDash_Pips(s_regMin),textClr,8);
    ry += PH_DASH_ROW;
-   PhDash_SetLabel(pfx + "TX",xL - 6,ry,"TrMax    " + IntegerToString(s_trMax),textClr,8);
+   PhDash_SetLabel(pfx + "TX",xL - 6,ry,"Trades Max       " + IntegerToString(s_trMax),textClr,8);
    ry += PH_DASH_ROW;
-   PhDash_SetLabel(pfx + "TA",xL - 6,ry,"TrAvg    " + DoubleToString(s_trAvg,1),textClr,8);
+   PhDash_SetLabel(pfx + "TA",xL - 6,ry,"Trades Avg       " + DoubleToString(s_trAvg,1),textClr,8);
   }
 
 void PhDash_PaintAll(SPhDash &d,const bool showRegime,const bool showLoss,

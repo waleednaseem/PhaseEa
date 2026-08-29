@@ -84,7 +84,7 @@ input double             InpInitDeposit       = 0;      // 0=auto-freeze first b
 input double             InpDailyProfitPct    = 0;      // +% of init → stop (0=unlimited)
 input double             InpDailyLossPct      = 4.8;    // today −% of init → CloseAll + stop day
 input double             InpTrailLossPct      = 5.0;    // open basket float ≤ −% of init → CloseAll
-input int                InpMaxOpen           = 2;      // max concurrent Phase trades
+input int                InpMaxOpen           = 20;      // max concurrent Phase trades
 
 input group "=== FVG ==="
 input bool               InpShowFvg             = true;
@@ -264,26 +264,11 @@ void ApplyTradeExitsAndEntries()
             EnumToString(g_lastRegime),EnumToString(cur),TimeToString(iTime(_Symbol,_Period,1)),
             dbgFast,dbgSlow,(dbgFast>dbgSlow?"true":"false")));
       // #endregion
-      // Opposite-div BOS + FVG/bounce U-turn → regime flicker pe bhi CloseAll mat
-      const bool wasBuy = (g_lastRegime == PH_BULLISH);
-      const bool wasSell = (g_lastRegime == PH_BEARISH);
-      const bool againstBos = (wasBuy && g_div.newBosBreakBear) ||
-                              (wasSell && g_div.newBosBreakBull);
-      const bool rescued = (wasBuy || wasSell) &&
-                           PhTrade_AgainstBosRescued(g_tradeCfg,wasBuy,g_rsi);
-
-      if(againstBos || rescued)
-        {
-         Print("Phase Trade: regime ",EnumToString(g_lastRegime)," -> ",
-               EnumToString(cur)," but DivBOS/FVG-bounce rescue — no CloseAll");
-        }
-      else
-        {
-         int n = PhTrade_CloseAll(g_trade,g_tradeCfg);
-         if(n > 0)
-            Print("Phase Trade: new regime CloseAll n=",n,
-                  " ",EnumToString(g_lastRegime)," -> ",EnumToString(cur));
-        }
+      // Regime change = parent: hamesha CloseAll (rescue skip nahi)
+      int n = PhTrade_CloseAll(g_trade,g_tradeCfg);
+      if(n > 0)
+         Print("Phase Trade: new regime CloseAll n=",n,
+               " ",EnumToString(g_lastRegime)," -> ",EnumToString(cur));
       PhTrade_ResetArms(g_trade);
       PhTrade_ClearFvgArm(g_trade);
       PhPriceSR_ClearArm(g_priceSR);
