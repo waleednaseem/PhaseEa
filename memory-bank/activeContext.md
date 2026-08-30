@@ -1,5 +1,5 @@
 ## Current focus
-v1.70: pehla 2 pe 50 flip; <35 seedha-up / >65 seedha-down → 2 replace once (50 OFF). Circled dip Div nahi — 2nd RSI 35-40 dead zone.
+v1.72: 2 SELL latch ke baad 50-thru BUY band. 0-1-2 SELL stay until next Div (50 bounce sirf pehla 2, replace ke baad off).
 
 ## Bug (chart)
 1 @ 60-65 → dump <35 → bounce 35-40 pe **2** lag jata **pehle**; Div confirm baad mein **0 DIV** pivot pe. Fix: step1 pe 35 cross = dead; Mark0 agar evt2Time > divT to 2 stamp hatao. Logs: `Phase Loop: 0/1/2/DIE`.
