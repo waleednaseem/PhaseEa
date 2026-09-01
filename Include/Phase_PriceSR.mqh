@@ -710,6 +710,11 @@ int PhStay_LoopDrive(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cf
    if(w.loopDead)
       return(0);
 
+   // DIE pehle — 1 stamp/wait tabhi jab loop zinda
+   PhStay_LoopCheckFarKill(w,psr,L,cfg,v,vOlder);
+   if(w.loopDead)
+      return(0);
+
    if(PhStay_LoopInvalidate1(w,cfg,v))
       return(0);
 
@@ -756,6 +761,7 @@ int PhStay_LoopDrive(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cf
 
    if(w.loopStep == 2)
      {
+      PhStay_Loop2Confirm(w,v,barT);
       const int against = PhStay_LoopAgainst2(w,cfg,v,vOlder,barT);
       if(against != 0)
          return(against);
@@ -763,8 +769,6 @@ int PhStay_LoopDrive(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cf
       if(rep != 0)
          return(rep);
      }
-   else
-      PhStay_LoopCheckFarKill(w,psr,L,cfg,v,vOlder);
 
    return(0);
   }

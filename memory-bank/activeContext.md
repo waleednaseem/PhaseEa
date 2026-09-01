@@ -1,5 +1,5 @@
 ## Current focus
-v1.73: 2 SELL (60-65) ke baad RSI 2-peak tod + up → BUY flip (pehla 2). Mirror: BUY 2 trough break → SELL. 50 bounce pehla 2 pe still OK.
+v1.77: **2 against flip** ke baad replace/50/classic band — next regular Div tak (07:59 BUY ke baad 08:05 replace SELL nahi).
 
 ## Bug (chart)
 1 @ 60-65 → dump <35 → bounce 35-40 pe **2** lag jata **pehle**; Div confirm baad mein **0 DIV** pivot pe. Fix: step1 pe 35 cross = dead; Mark0 agar evt2Time > divT to 2 stamp hatao. Logs: `Phase Loop: 0/1/2/DIE`.
@@ -11,7 +11,7 @@ v1.73: 2 SELL (60-65) ke baad RSI 2-peak tod + up → BUY flip (pehla 2). Mirror
 - **Div >65:** wait **35-41** bounce (close **>35**) → **1**; phir **59-65** → **2**. Close **≤35** = **dead** (1/2 nahi, isi zone mein 2 nahi)
 - 1 aur 2 hamesha opposite zones; ek hi 35-40 ya 60-65 band mein dono nahi
 - Latch at 2 until next regular Div (classic 35/65 block)
-- **2 against:** SELL 2 peak break + rising → BUY; BUY 2 trough break + falling → SELL
+- **2 against:** SELL 2 peak break + rising → BUY; BUY 2 trough break + falling → SELL. **2 ke baad 50 cross → against off**
 - **2 ke baad 50-zone = 48–53 (yellow lines on Phase_RSI):**
   - wait bounce/reject inside 48–53 → regime flip
   - through **>53** (BUY latch) / **<48** (SELL latch) → no 50-flip

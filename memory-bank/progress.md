@@ -17,6 +17,9 @@
 - v1.55: 0-1-2 **path = Div side** (not regime); 0 not in 35-40/60-65; 1+Div ≠ 2; same-band 1+2 band; 65/35 through without sharp → dead until next Div
 - After 2: **50 bounce/reject** → regime switch again (BUY reject-down / SELL bounce-up)
 - v1.73: 2 extreme break against → flip (SELL 2 peak up → BUY)
+- v1.75: 2 ke baad 50 cross → against-2 off
+- v1.76: 1/2 label Y zone-bahar; 2 replace visual lock
+- v1.77: against-2 flip ke baad replace/50 band until next Div
 
 ## Left
 - Live chart QA: Div<35 → 60-65=1 then 35-40=2; Div>65 mirror; far-cross kills loop

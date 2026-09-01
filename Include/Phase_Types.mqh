@@ -90,6 +90,7 @@ struct SPhWalk
    bool     loopEvt1;
    bool     loopEvt2;
    datetime loopEvt2Time;   // Complete2 bar — late Div se pehle galat 2 hatao
+   datetime loopEvt2Stamp;  // pehla 2 label — replace pe move nahi
    double   loopEvt2Rsi;    // 2 extreme: SELL=peak, BUY=trough — break = against flip
    datetime loopKill1Time;  // 1 invalidate → remove stamp, no 0
    datetime loopKill2Time;  // late-Div race: galat 2 stamp delete
@@ -98,6 +99,8 @@ struct SPhWalk
    bool     loop50Flipped; // pehla 2 pe 50 flip ho chuka
    bool     loopLatch;      // 2 complete → flip locked until next regular Div
    bool     loop2Hold;     // 2 ke baad: 50-zone se pehle against-2 → dubara flip
+   bool     loop2MidSeen;  // 2 ke baad 50 cross
+   bool     loop2Safe;     // 50 + agla zone (cross/bounce) → against-2 band
    int      loop2Reps;     // 0=pehla 2 (50 OK); 1=last replace (50 off)
    bool     loop2RepArm;   // <35 / >65 dekha, wait clean V
    int      loop2RepStay;
@@ -215,6 +218,7 @@ void PhWalkReset(SPhWalk &w)
    w.loopEvt1         = false;
    w.loopEvt2         = false;
    w.loopEvt2Time     = 0;
+   w.loopEvt2Stamp    = 0;
    w.loopEvt2Rsi      = 0.0;
    w.loopKill1Time    = 0;
    w.loopKill2Time    = 0;
@@ -223,6 +227,8 @@ void PhWalkReset(SPhWalk &w)
    w.loop50Flipped     = false;
    w.loopLatch        = false;
    w.loop2Hold        = false;
+   w.loop2MidSeen     = false;
+   w.loop2Safe        = false;
    w.loop2Reps        = 0;
    w.loop2RepArm      = false;
    w.loop2RepStay     = 0;
@@ -369,7 +375,9 @@ void PhStay_LoopDie(SPhWalk &w)
   {
    if(w.loopStep1Time > 0)
       w.loopKill1Time = w.loopStep1Time;
-   if(w.loopEvt2Time > 0)
+   if(w.loopEvt2Stamp > 0)
+      w.loopKill2Time = w.loopEvt2Stamp;
+   else if(w.loopEvt2Time > 0)
       w.loopKill2Time = w.loopEvt2Time;
    Print("Phase Loop: DIE path=",w.loopPath," stepWas=",w.loopStep);
    w.loopDead      = true;
@@ -383,11 +391,15 @@ void PhStay_LoopDie(SPhWalk &w)
    w.loop50Flipped = false;
    w.loopLatch     = false;
    w.loop2Hold     = false;
+   w.loop2MidSeen  = false;
+   w.loop2Safe     = false;
    w.loop2Reps     = 0;
    w.loop2RepArm   = false;
    w.loop2RepStay  = 0;
+   w.loopEvt1      = false;
    w.loopEvt2      = false;
    w.loopEvt2Time  = 0;
+   w.loopEvt2Stamp = 0;
    w.loopEvt2Rsi   = 0.0;
    w.zOppBuyArmed  = false;
    w.zOppSellArmed = false;
@@ -400,12 +412,15 @@ void PhStay_LoopComplete2(SPhWalk &w,const double v,const double vOlder,const da
   {
    w.loopEvt2      = true;
    w.loopEvt2Time  = barT;
+   w.loopEvt2Stamp = barT;
    w.loopEvt2Rsi   = (w.loopPath < 0) ? MathMax(v,vOlder) : MathMin(v,vOlder);
    w.loop50Ready   = true;   // 2 ke baad: 50 reject→SELL / bounce→BUY
    w.loop50Armed   = false;
    w.loop50Flipped = false;
    w.loopLatch     = true;   // classic 35/65 block; 50 switch OK
    w.loop2Hold     = true;
+   w.loop2MidSeen  = false;
+   w.loop2Safe     = false;
    w.loop2Reps     = 0;
    w.loop2RepArm   = false;
    w.loop2RepStay  = 0;
@@ -422,12 +437,39 @@ void PhStay_LoopComplete2(SPhWalk &w,const double v,const double vOlder,const da
    Print("Phase Loop: 2 path=",w.loopPath," @ ",TimeToString(barT));
   }
 
+// 2 ke baad 50 cross = against-2 band (agla zone optional).
+void PhStay_Loop2Confirm(SPhWalk &w,const double v,const datetime barT)
+  {
+   if(w.loopStep != 2 || w.loopPath == 0 || w.loop2Safe)
+      return;
+   if(barT != 0 && barT == w.loopEvt2Time)
+      return;
+
+   if(w.loopPath > 0)
+     {
+      if(v + 1e-9 >= PH_LOOP_50)
+        {
+         w.loop2MidSeen = true;
+         w.loop2Safe    = true;
+         Print("Phase Loop: 2 confirmed 50 — against off @ ",TimeToString(barT));
+        }
+     }
+   else if(v <= PH_LOOP_50 + 1e-9)
+     {
+      w.loop2MidSeen = true;
+      w.loop2Safe    = true;
+      Print("Phase Loop: 2 confirmed 50 — against off @ ",TimeToString(barT));
+     }
+  }
+
 // 2 ke baad market khilaaf: 2 RSI extreme todna = flip (pehla 2 bhi).
 // SELL 2: peak se upar + rising → BUY. BUY 2: trough se neeche + falling → SELL.
 int PhStay_LoopAgainst2(SPhWalk &w,const SPhConfig &cfg,const double v,
                         const double vOlder,const datetime barT)
   {
    if(w.loopStep != 2 || w.loopPath == 0 || w.loopEvt2Rsi <= 0.0)
+      return(0);
+   if(w.loop2Safe)
       return(0);
    if(barT != 0 && barT == w.loopEvt2Time)
       return(0);
@@ -441,6 +483,9 @@ int PhStay_LoopAgainst2(SPhWalk &w,const SPhConfig &cfg,const double v,
       w.loop50Armed   = false;
       w.loop50Ready   = false;
       w.loop50Flipped = true;
+      w.loop2Safe     = true;                 // against done
+      w.loop2Reps     = PH_LOOP_2_REPLACES;   // replace/flip band until next Div
+      w.loopLatch     = true;
       Print("Phase Loop: 2 against SELL → BUY rsi=",DoubleToString(v,1),
             " broke=",DoubleToString(w.loopEvt2Rsi,1)," @ ",TimeToString(barT));
       return(1);
@@ -452,6 +497,9 @@ int PhStay_LoopAgainst2(SPhWalk &w,const SPhConfig &cfg,const double v,
       w.loop50Armed   = false;
       w.loop50Ready   = false;
       w.loop50Flipped = true;
+      w.loop2Safe     = true;
+      w.loop2Reps     = PH_LOOP_2_REPLACES;
+      w.loopLatch     = true;
       Print("Phase Loop: 2 against BUY → SELL rsi=",DoubleToString(v,1),
             " broke=",DoubleToString(w.loopEvt2Rsi,1)," @ ",TimeToString(barT));
       return(-1);
@@ -483,15 +531,16 @@ bool PhStay_CandleDownThenUp(const datetime barT)
 
 void PhStay_LoopReStamp2(SPhWalk &w,const double v,const double vOlder,const datetime barT)
   {
-   if(w.loopEvt2Time > 0)
-      w.loopKill2Time = w.loopEvt2Time;
-   w.loopEvt2      = true;
+   // pehla 2 label lock — against/replace pe move nahi
+   w.loopEvt2      = false;
    w.loopEvt2Time  = barT;
    w.loopEvt2Rsi   = (w.loopPath < 0) ? MathMax(v,vOlder) : MathMin(v,vOlder);
    w.loop2Reps     = PH_LOOP_2_REPLACES;
    w.loop50Ready   = false;   // 2nd 2: 50 flip band
    w.loop50Armed   = false;
    w.loop2Hold     = false;
+   w.loop2MidSeen  = false;
+   w.loop2Safe     = false;
    w.loop2RepArm   = false;
    w.loop2RepStay  = 0;
    w.loopLatch     = true;
@@ -557,8 +606,8 @@ bool PhStay_LoopTryMark0(SPhWalk &w,const SPhConfig &cfg,const double v,
       w.loopKill1Time = w.loopStep1Time;
    // Div pivot pehle confirm baad: beech mein galat Complete2 → 2 stamp hatao
    const datetime t0 = (divT > 0 ? divT : barT);
-   if(w.loopEvt2Time > 0 && t0 > 0 && w.loopEvt2Time > t0)
-      w.loopKill2Time = w.loopEvt2Time;
+   if(w.loopEvt2Stamp > 0 && t0 > 0 && w.loopEvt2Stamp > t0)
+      w.loopKill2Time = w.loopEvt2Stamp;
    w.loopDead      = false;
    w.loopFarAge    = 0;
    w.loopHiSeen    = false;
@@ -570,11 +619,14 @@ bool PhStay_LoopTryMark0(SPhWalk &w,const SPhConfig &cfg,const double v,
    w.loop50Flipped = false;
    w.loopLatch     = false;
    w.loop2Hold     = false;
+   w.loop2MidSeen  = false;
+   w.loop2Safe     = false;
    w.loop2Reps     = 0;
    w.loop2RepArm   = false;
    w.loop2RepStay  = 0;
    w.loopEvt2      = false;
    w.loopEvt2Time  = 0;
+   w.loopEvt2Stamp = 0;
    w.loopEvt2Rsi   = 0.0;
    w.zOppBuyArmed  = false;
    w.zOppSellArmed = false;

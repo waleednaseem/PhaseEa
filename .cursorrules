@@ -18,12 +18,12 @@ RSI regime EA: visual + live bounce trades (v1.58).
     - **Div >65:** **1** = 35–41 bounce **ya** 35 sharp-up; **2** = 59–65 reject **ya** 65 sharp-down → SELL latch
     - 1 aur 2 **opposite** zones only — ek band (35-40 ya 60-65) mein dono nahi
     - **Virtual S&R:** no S&R <35 → **35–40 = S&R** (35 through = no 1/2). No S&R >65 → **60–65 = S&R**. Real PriceSR/INV pehle; S&R>65 pe mere Above65 DIE nahi — touch+reject=1, through=dead
-    - After 2: opposite 35/65 ignore until next **regular Div (=0)**. **Against-2 (pehla 2 bhi):** SELL 2 RSI peak tod + rising → BUY; BUY 2 trough tod + falling → SELL. Pehla 2: **50 flip OK**. `<35` seedha up (no up-then-down candle) ya `>65` seedha down (no down-then-up) → **2 replace once** (purana 2 stamp hatao), **50 flip OFF**. 2nd 2 last.
+    - After 2: opposite 35/65 ignore until next **regular Div (=0)**. **Against-2 (pehla 2 bhi):** SELL 2 RSI peak tod + rising → BUY; BUY 2 trough tod + falling → SELL — **lekin 2 ke baad 50 cross ho chuka ho to against-2 band** (agla zone optional). **Against-2 flip ke baad** replace/50/classic band — next **regular Div** tak. Pehla 2: **50 flip OK**. `<35` seedha up (no up-then-down candle) ya `>65` seedha down (no down-then-up) → **2 replace once** (logic; **pehla 2 label lock** `loopEvt2Stamp`), **50 flip OFF**. 2nd 2 last.
     - **2 ke baad 50-zone 48–53 (yellow):** wait bounce/reject andar → flip; **>53 / <48 through** bina bounce = no flip. Classic 35/65 latch block until next Div
     - Same bar pe 0→1 ya 1→2 nahi; HUD nahi (sirf chart+RSI stamps)
     - **0 DIV extreme break (step 0/1):** path **-1** → RSI `> loopEvt0Rsi` = DIE; path **+1** → RSI `< loopEvt0Rsi` = DIE. Step 2 latch pe nahi; Mark0 bar pe nahi
  - Sharp = reverse ≤3 bars; park/stay on S&R = no count
-    - **1 + Below35 / 35-40 stay≥5 / re-cross:** DIE (BUY path 1@60-65 dump <35; SELL path 1@35-40 ke baad 35 stay ya 35-40 wapas). 2 sharp-up from <35 nahi. 0-1-2 teeno stamp lazmi
+    - **1 + Below35 / 35-40 stay≥5 / re-cross:** DIE. Loop DIE ke baad **1 consider/stamp nahi** (FarKill pehle; evt1 clear). 2 sharp-up from <35 nahi. 0-1-2 teeno stamp lazmi (jab zinda)
  - **1 invalidate (extreme):** 1 stamp hataye, **0 stamp nahi**. Far-dead: 1 bhi hataye
 - Price Div / BOS lines do **not** flip regime (regular Div only restarts loop)
 
@@ -68,6 +68,7 @@ RSI regime EA: visual + live bounce trades (v1.58).
 - Prefix `PH_`
 - Modules: Buy/Sell/Regime/SR/PriceSR/FVG/Draw/Dash/Div*/Trade + Types
 - Dash: top-right M1..H1 regime pills (green/red) — Phase own, not F2E
+- **1/2 labels (v1.76):** RSI Y zone-bahar — `35-40` type ~28, `60-65` type ~72 (live RSI nahi). 2 replace pe pehla stamp move nahi
 
 ## Companion
 `Indicators/Phase_RSI.mq5` — RSI(14), levels 20/35/40/50/60/65/80

@@ -2,7 +2,7 @@
 //|                                                       Phase.mq5  |
 //+------------------------------------------------------------------+
 #property copyright "Phase"
-#property version   "1.73"
+#property version   "1.77"
 
 #include "Include/Phase_Types.mqh"
 #include "Include/Phase_Regime.mqh"
@@ -240,6 +240,13 @@ void AttachPhaseMa()
      }
    g_maWindow = 0;
    Print("Phase: MA attach white10/red100 ok");
+  }
+
+void PhApplyChartShift()
+  {
+   ChartSetInteger(0,CHART_AUTOSCROLL,true);
+   ChartSetInteger(0,CHART_SHIFT,true);
+   ChartSetDouble(0,CHART_SHIFT_SIZE,50.0); // MT5 max indent (history scroll nahi)
   }
 
 void PaintDash(const bool forceCalc)
@@ -511,6 +518,7 @@ int OnInit()
 
    ChartSetInteger(0,CHART_SHOW_GRID,false);
    ChartSetInteger(0,CHART_COLOR_BACKGROUND,clrBlack);
+   PhApplyChartShift();
    EventSetTimer(1);
    IgniteHistory();
    PaintDash(true);
