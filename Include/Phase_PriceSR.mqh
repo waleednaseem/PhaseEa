@@ -741,13 +741,13 @@ int PhStay_LoopDrive(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cf
         {
          if(PhStay_LoopLoBounce(w,psr,L,cfg,v,vOlder))
            {
-            PhStay_LoopComplete2(w,barT);
+            PhStay_LoopComplete2(w,v,vOlder,barT);
             return(1);
            }
         }
       else if(PhStay_LoopHiReject(w,psr,L,cfg,v,vOlder))
         {
-         PhStay_LoopComplete2(w,barT);
+         PhStay_LoopComplete2(w,v,vOlder,barT);
          return(-1);
         }
       if(PhStay_LoopFail3540After1(w,cfg,v))
@@ -756,12 +756,12 @@ int PhStay_LoopDrive(SPhWalk &w,SPhPriceSR &psr,SPhSRList &L,const SPhConfig &cf
 
    if(w.loopStep == 2)
      {
+      const int against = PhStay_LoopAgainst2(w,cfg,v,vOlder,barT);
+      if(against != 0)
+         return(against);
       const int rep = PhStay_LoopReplace2(w,cfg,v,vOlder,barT);
       if(rep != 0)
          return(rep);
-      const int against = PhStay_LoopAgainst2(w,cfg,v,barT);
-      if(against != 0)
-         return(against);
      }
    else
       PhStay_LoopCheckFarKill(w,psr,L,cfg,v,vOlder);

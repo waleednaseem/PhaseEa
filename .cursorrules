@@ -18,7 +18,7 @@ RSI regime EA: visual + live bounce trades (v1.58).
     - **Div >65:** **1** = 35–41 bounce **ya** 35 sharp-up; **2** = 59–65 reject **ya** 65 sharp-down → SELL latch
     - 1 aur 2 **opposite** zones only — ek band (35-40 ya 60-65) mein dono nahi
     - **Virtual S&R:** no S&R <35 → **35–40 = S&R** (35 through = no 1/2). No S&R >65 → **60–65 = S&R**. Real PriceSR/INV pehle; S&R>65 pe mere Above65 DIE nahi — touch+reject=1, through=dead
-    - After 2: opposite 35/65 ignore until next **regular Div (=0)** — **except** 50-zone se pehle **against-2** (sirf **2nd/last 2** ke baad). Pehla 2: **50 flip OK**. `<35` seedha up (no up-then-down candle) ya `>65` seedha down (no down-then-up) → **2 replace once** (purana 2 stamp hatao), **50 flip OFF**. 2nd 2 last.
+    - After 2: opposite 35/65 ignore until next **regular Div (=0)**. **Against-2 (pehla 2 bhi):** SELL 2 RSI peak tod + rising → BUY; BUY 2 trough tod + falling → SELL. Pehla 2: **50 flip OK**. `<35` seedha up (no up-then-down candle) ya `>65` seedha down (no down-then-up) → **2 replace once** (purana 2 stamp hatao), **50 flip OFF**. 2nd 2 last.
     - **2 ke baad 50-zone 48–53 (yellow):** wait bounce/reject andar → flip; **>53 / <48 through** bina bounce = no flip. Classic 35/65 latch block until next Div
     - Same bar pe 0→1 ya 1→2 nahi; HUD nahi (sirf chart+RSI stamps)
     - **0 DIV extreme break (step 0/1):** path **-1** → RSI `> loopEvt0Rsi` = DIE; path **+1** → RSI `< loopEvt0Rsi` = DIE. Step 2 latch pe nahi; Mark0 bar pe nahi

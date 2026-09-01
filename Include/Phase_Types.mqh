@@ -90,6 +90,7 @@ struct SPhWalk
    bool     loopEvt1;
    bool     loopEvt2;
    datetime loopEvt2Time;   // Complete2 bar — late Div se pehle galat 2 hatao
+   double   loopEvt2Rsi;    // 2 extreme: SELL=peak, BUY=trough — break = against flip
    datetime loopKill1Time;  // 1 invalidate → remove stamp, no 0
    datetime loopKill2Time;  // late-Div race: galat 2 stamp delete
    bool     loop50Armed;
@@ -214,6 +215,7 @@ void PhWalkReset(SPhWalk &w)
    w.loopEvt1         = false;
    w.loopEvt2         = false;
    w.loopEvt2Time     = 0;
+   w.loopEvt2Rsi      = 0.0;
    w.loopKill1Time    = 0;
    w.loopKill2Time    = 0;
    w.loop50Armed      = false;
@@ -386,6 +388,7 @@ void PhStay_LoopDie(SPhWalk &w)
    w.loop2RepStay  = 0;
    w.loopEvt2      = false;
    w.loopEvt2Time  = 0;
+   w.loopEvt2Rsi   = 0.0;
    w.zOppBuyArmed  = false;
    w.zOppSellArmed = false;
    PhWalkClearLoopSr(w);
@@ -393,15 +396,16 @@ void PhStay_LoopDie(SPhWalk &w)
    PhWalkClearLoop3540(w);
   }
 
-void PhStay_LoopComplete2(SPhWalk &w,const datetime barT)
+void PhStay_LoopComplete2(SPhWalk &w,const double v,const double vOlder,const datetime barT)
   {
    w.loopEvt2      = true;
    w.loopEvt2Time  = barT;
+   w.loopEvt2Rsi   = (w.loopPath < 0) ? MathMax(v,vOlder) : MathMin(v,vOlder);
    w.loop50Ready   = true;   // 2 ke baad: 50 reject→SELL / bounce→BUY
    w.loop50Armed   = false;
    w.loop50Flipped = false;
    w.loopLatch     = true;   // classic 35/65 block; 50 switch OK
-   w.loop2Hold     = true;   // 50-zone se pehle against-2 = dubara flip
+   w.loop2Hold     = true;
    w.loop2Reps     = 0;
    w.loop2RepArm   = false;
    w.loop2RepStay  = 0;
@@ -418,43 +422,39 @@ void PhStay_LoopComplete2(SPhWalk &w,const datetime barT)
    Print("Phase Loop: 2 path=",w.loopPath," @ ",TimeToString(barT));
   }
 
-// 2 ke baad foran against: BUY latch + <35 → SELL; SELL latch + >65 → BUY.
-// 48–53 tak pahunch gaye to 2 hold; uske baad sirf 50-zone. Same bar nahi.
-int PhStay_LoopAgainst2(SPhWalk &w,const SPhConfig &cfg,const double v,const datetime barT)
+// 2 ke baad market khilaaf: 2 RSI extreme todna = flip (pehla 2 bhi).
+// SELL 2: peak se upar + rising → BUY. BUY 2: trough se neeche + falling → SELL.
+int PhStay_LoopAgainst2(SPhWalk &w,const SPhConfig &cfg,const double v,
+                        const double vOlder,const datetime barT)
   {
-   if(!w.loop2Hold || w.loopStep != 2 || w.loopPath == 0)
+   if(w.loopStep != 2 || w.loopPath == 0 || w.loopEvt2Rsi <= 0.0)
       return(0);
-   if(w.loop2Reps < PH_LOOP_2_REPLACES)
-      return(0);   // pehla 2: replace window; 50 flip alag
    if(barT != 0 && barT == w.loopEvt2Time)
       return(0);
 
-   if(w.loopPath > 0 && v + 1e-9 >= PH_LOOP_50_LO)
-     {
-      w.loop2Hold = false;
-      return(0);
-     }
-   if(w.loopPath < 0 && v <= PH_LOOP_50_HI + 1e-9)
-     {
-      w.loop2Hold = false;
-      return(0);
-     }
+   const double tol = cfg.tol;
 
-   if(w.loopPath > 0 && PhStay_Below35(cfg,v))
+   if(w.loopPath < 0 && v > w.loopEvt2Rsi + tol && v > vOlder)
      {
-      w.loop2Hold   = false;
-      w.loop50Armed = false;
-      Print("Phase Loop: 2 against BUY → SELL rsi=",DoubleToString(v,1),
-            " @ ",TimeToString(barT));
-      return(-1);
-     }
-   if(w.loopPath < 0 && PhStay_Above65(cfg,v))
-     {
-      w.loop2Hold   = false;
-      w.loop50Armed = false;
+      w.loop2Hold     = false;
+      w.loop2RepArm   = false;
+      w.loop50Armed   = false;
+      w.loop50Ready   = false;
+      w.loop50Flipped = true;
       Print("Phase Loop: 2 against SELL → BUY rsi=",DoubleToString(v,1),
-            " @ ",TimeToString(barT));
+            " broke=",DoubleToString(w.loopEvt2Rsi,1)," @ ",TimeToString(barT));
       return(1);
+     }
+   if(w.loopPath > 0 && v < w.loopEvt2Rsi - tol && v < vOlder)
+     {
+      w.loop2Hold     = false;
+      w.loop2RepArm   = false;
+      w.loop50Armed   = false;
+      w.loop50Ready   = false;
+      w.loop50Flipped = true;
+      Print("Phase Loop: 2 against BUY → SELL rsi=",DoubleToString(v,1),
+            " broke=",DoubleToString(w.loopEvt2Rsi,1)," @ ",TimeToString(barT));
+      return(-1);
      }
    return(0);
   }
@@ -481,12 +481,13 @@ bool PhStay_CandleDownThenUp(const datetime barT)
    return(c2 < o2 && c1 > o1);
   }
 
-void PhStay_LoopReStamp2(SPhWalk &w,const datetime barT)
+void PhStay_LoopReStamp2(SPhWalk &w,const double v,const double vOlder,const datetime barT)
   {
    if(w.loopEvt2Time > 0)
       w.loopKill2Time = w.loopEvt2Time;
    w.loopEvt2      = true;
    w.loopEvt2Time  = barT;
+   w.loopEvt2Rsi   = (w.loopPath < 0) ? MathMax(v,vOlder) : MathMin(v,vOlder);
    w.loop2Reps     = PH_LOOP_2_REPLACES;
    w.loop50Ready   = false;   // 2nd 2: 50 flip band
    w.loop50Armed   = false;
@@ -520,7 +521,7 @@ int PhStay_LoopReplace2(SPhWalk &w,const SPhConfig &cfg,const double v,
         }
       if(w.loop2RepArm && v > vOlder && !PhStay_CandleUpThenDown(barT))
         {
-         PhStay_LoopReStamp2(w,barT);
+         PhStay_LoopReStamp2(w,v,vOlder,barT);
          return(1);
         }
       if(!PhStay_Below35(cfg,v))
@@ -536,7 +537,7 @@ int PhStay_LoopReplace2(SPhWalk &w,const SPhConfig &cfg,const double v,
         }
       if(w.loop2RepArm && v < vOlder && !PhStay_CandleDownThenUp(barT))
         {
-         PhStay_LoopReStamp2(w,barT);
+         PhStay_LoopReStamp2(w,v,vOlder,barT);
          return(-1);
         }
       if(!PhStay_Above65(cfg,v))
@@ -574,6 +575,7 @@ bool PhStay_LoopTryMark0(SPhWalk &w,const SPhConfig &cfg,const double v,
    w.loop2RepStay  = 0;
    w.loopEvt2      = false;
    w.loopEvt2Time  = 0;
+   w.loopEvt2Rsi   = 0.0;
    w.zOppBuyArmed  = false;
    w.zOppSellArmed = false;
    PhWalkClearLoopSr(w);
